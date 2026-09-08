@@ -1,0 +1,749 @@
+openapi: 3.0.3
+info:
+  title: Jersey Webshop API
+  description: |
+    API za webshop fan sportskih dresova (nogomet, F1, košarka).
+
+    Svaki dres ima **jedan** 3D model (`model_3d_url`) i **više** slika (`images`).
+    Slike dolaze iz dva izvora koja se u odgovoru vraćaju zajedno:
+    upload fajla (`POST /admin/products/{id}/images`) i vanjski URL-ovi
+    (`image_urls` u tijelu proizvoda).
+
+    Admin endpointi traže Sanctum bearer token iz `POST /admin/login`.
+  version: 1.1.0
+
+servers:
+  - url: https://api.tvojdomena.com/api
+    description: Produkcija
+  - url: http://localhost:8000/api
+    description: Lokalni razvoj (php artisan serve)
+
+tags:
+  - name: Products (public)
+  - name: Orders (public)
+  - name: Admin - Auth
+  - name: Admin - Products
+  - name: Admin - Orders
+  - name: Admin - Dashboard
+
+paths:
+  # ============================================
+  # PUBLIC — PRODUCTS
+  # ============================================
+  /products:
+    get:
+      tags: [Products (public)]
+      summary: Lista proizvoda s filterima
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [football, f1, basketball]
+        - name: club
+          in: query
+          schema:
+            type: string
+        - name: kit_type
+          in: query
+          schema:
+            type: string
+            enum: [home, away, third, fourth]
+        - name: audience
+          in: query
+          schema:
+            type: string
+            enum: [kids, men, women, unisex]
+        - name: season
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Default je "active" — draft/sold_out se ne vraćaju javno osim ako nije eksplicitno traženo
+          schema:
+            type: string
+            enum: [active, sold_out]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+      responses:
+        '200':
+          description: Lista proizvoda
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProductSummary'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /products/{id}:
+    get:
+      tags: [Products (public)]
+      summary: Detalj proizvoda (sa slikama i varijantama)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Detalj proizvoda
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductDetail'
+        '404':
+          description: Proizvod nije pronađen
+
+  # ============================================
+  # PUBLIC — ORDERS
+  # ============================================
+  /orders:
+    post:
+      tags: [Orders (public)]
+      summary: Kreiranje nove narudžbe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Narudžba kreirana
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderConfirmation'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /orders/lookup:
+    get:
+      tags: [Orders (public)]
+      summary: Kupac provjerava status narudžbe (bez internog trackinga)
+      parameters:
+        - name: order_reference
+          in: query
+          required: true
+          schema:
+            type: string
+          example: ORD-8F3K2
+        - name: email
+          in: query
+          required: true
+          schema:
+            type: string
+            format: email
+      responses:
+        '200':
+          description: Status narudžbe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderStatusPublic'
+        '404':
+          description: Narudžba nije pronađena
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # ============================================
+  # ADMIN — AUTH
+  # ============================================
+  /admin/login:
+    post:
+      tags: [Admin - Auth]
+      summary: Admin login (Sanctum token)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Uspješna prijava
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+        '401':
+          description: Pogrešni podaci (nepostojeći korisnik, kriva lozinka ili korisnik nije admin)
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Previše pokušaja prijave (rate limit 6/min)
+
+  # ============================================
+  # ADMIN — PRODUCTS
+  # ============================================
+  /admin/products:
+    get:
+      tags: [Admin - Products]
+      summary: Lista svih proizvoda (uključujući draft/sold_out)
+      security: [{ sanctum: [] }]
+      responses:
+        '200':
+          description: Lista proizvoda
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProductDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin - Products]
+      summary: Kreiranje novog proizvoda
+      security: [{ sanctum: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '201':
+          description: Proizvod kreiran
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /admin/products/{id}:
+    put:
+      tags: [Admin - Products]
+      summary: Izmjena proizvoda
+      security: [{ sanctum: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '200':
+          description: |
+            Proizvod ažuriran. PUT je full replace — izostavljena opcionalna polja
+            (`season`, `description`, `model_3d_url`, `image_urls`) se brišu.
+            Iznimka je `status`: izostavljanjem zadržava trenutnu vrijednost.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Proizvod nije pronađen
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Admin - Products]
+      summary: Brisanje proizvoda
+      security: [{ sanctum: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: |
+            Obrisano. Slike i varijante padaju kaskadno, ali povijest narudžbi ostaje
+            čitljiva — order_items drži snapshot naziva, veličine i cijene.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Proizvod nije pronađen
+
+  /admin/products/{id}/images:
+    post:
+      tags: [Admin - Products]
+      summary: Upload slika za proizvod (multipart)
+      security: [{ sanctum: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                images:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '201':
+          description: Slike uploadane
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProductImage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Proizvod nije pronađen
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /admin/products/{id}/variants:
+    put:
+      tags: [Admin - Products]
+      summary: Postavljanje/ažuriranje veličina i zaliha
+      security: [{ sanctum: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                variants:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      size:
+                        type: string
+                      stock_quantity:
+                        type: integer
+      responses:
+        '200':
+          description: Varijante ažurirane. Replace semantika — veličine koje nisu poslane se brišu.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Proizvod nije pronađen
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # ============================================
+  # ADMIN — ORDERS
+  # ============================================
+  /admin/orders:
+    get:
+      tags: [Admin - Orders]
+      summary: Lista svih narudžbi
+      security: [{ sanctum: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ordered, sent_to_supplier, arrived_hr, shipped, delivered]
+      responses:
+        '200':
+          description: Lista narudžbi
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrderAdmin'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /admin/orders/{id}/status:
+    put:
+      tags: [Admin - Orders]
+      summary: Promjena statusa narudžbe (triggira customer notifikaciju)
+      security: [{ sanctum: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [ordered, sent_to_supplier, arrived_hr, shipped, delivered]
+                tracking_number_internal:
+                  type: string
+                  description: Popunjava se kad status prelazi u "shipped"
+      responses:
+        '200':
+          description: Status ažuriran. Promjena statusa šalje email notifikaciju kupcu.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderAdmin'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Narudžba nije pronađena
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # ============================================
+  # ADMIN — DASHBOARD
+  # ============================================
+  /admin/dashboard:
+    get:
+      tags: [Admin - Dashboard]
+      summary: Osnovna statistika
+      security: [{ sanctum: [] }]
+      responses:
+        '200':
+          description: Statistika
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_orders_this_month:
+                    type: integer
+                  revenue_this_month:
+                    type: number
+                  top_products:
+                    type: array
+                    description: Top 5 po prodanim komadima, all-time (za razliku od polja iznad koja su za tekući mjesec)
+                    items:
+                      type: object
+                      properties:
+                        product_name:
+                          type: string
+                        units_sold:
+                          type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  responses:
+    Unauthorized:
+      description: Nedostaje ili je nevažeći token
+    Forbidden:
+      description: Token pripada korisniku koji nije administrator
+    ValidationError:
+      description: Validacijska greška
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+
+  securitySchemes:
+    sanctum:
+      type: http
+      scheme: bearer
+
+  schemas:
+    ProductSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        club_or_team:
+          type: string
+        category:
+          type: string
+          enum: [football, f1, basketball]
+        kit_type:
+          type: string
+          enum: [home, away, third, fourth]
+        audience:
+          type: string
+          enum: [kids, men, women, unisex]
+        season:
+          type: string
+        price:
+          type: number
+        primary_image_url:
+          type: string
+          format: uri
+          nullable: true
+          description: URL primarne slike, null ako proizvod nema slika
+        status:
+          type: string
+          enum: [active, sold_out, draft]
+
+    ProductDetail:
+      allOf:
+        - $ref: '#/components/schemas/ProductSummary'
+        - type: object
+          properties:
+            description:
+              type: string
+            model_3d_url:
+              type: string
+              nullable: true
+              description: Jedan link na GLB/3D model za 360 prikaz (Blender pipeline) — null dok nije generiran
+            images:
+              type: array
+              description: Uploadane i vanjske (image_urls) slike zajedno, sortirane po sort_order
+              items:
+                $ref: '#/components/schemas/ProductImage'
+            variants:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  size:
+                    type: string
+                  stock_quantity:
+                    type: integer
+
+    ProductImage:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Puni URL — uploadana slika s public diska ili vanjski URL iz image_urls
+        sort_order:
+          type: integer
+        is_primary:
+          type: boolean
+          description: Proizvod sa slikama uvijek ima točno jednu primarnu
+
+    CreateProductRequest:
+      type: object
+      required: [name, club_or_team, category, kit_type, audience, price]
+      properties:
+        name:
+          type: string
+        club_or_team:
+          type: string
+        category:
+          type: string
+          enum: [football, f1, basketball]
+        kit_type:
+          type: string
+          enum: [home, away, third, fourth]
+        audience:
+          type: string
+          enum: [kids, men, women, unisex]
+        season:
+          type: string
+        model_3d_url:
+          type: string
+          nullable: true
+          description: Jedan GLB/3D model po dresu (Blender pipeline) — null dok nije generiran
+        image_urls:
+          type: array
+          maxItems: 20
+          description: >-
+            Vanjski URL-ovi slika (npr. CDN). Postavlja punu listu vanjskih slika —
+            izostavljanjem ili praznim arrayem se brišu. Uploadane slike
+            (POST /admin/products/{id}/images) se ovime ne diraju; oboje se
+            zajedno vraćaju u ProductDetail.images.
+
+            URL-ovi koji pokazuju na storage same aplikacije se ignoriraju, pa je
+            sigurno cijeli ProductDetail.images vratiti natrag u ovo polje —
+            uploadane slike se time neće duplicirati.
+          items:
+            type: string
+            format: uri
+        price:
+          type: number
+        description:
+          type: string
+        status:
+          type: string
+          enum: [active, sold_out, draft]
+
+    CreateOrderRequest:
+      type: object
+      required: [customer, items, shipping_address]
+      properties:
+        customer:
+          type: object
+          required: [email, name]
+          properties:
+            email:
+              type: string
+              format: email
+            name:
+              type: string
+            phone:
+              type: string
+        items:
+          type: array
+          items:
+            type: object
+            required: [product_variant_id, quantity]
+            properties:
+              product_variant_id:
+                type: integer
+              quantity:
+                type: integer
+        shipping_address:
+          type: object
+          required: [line1, city, postal_code, country]
+          properties:
+            line1:
+              type: string
+            line2:
+              type: string
+            city:
+              type: string
+            postal_code:
+              type: string
+            country:
+              type: string
+              description: ISO 3166-1 alpha-2 (npr. "HR", "DE")
+
+    OrderConfirmation:
+      type: object
+      properties:
+        order_reference:
+          type: string
+          example: ORD-8F3K2
+        total_price:
+          type: number
+        status:
+          type: string
+
+    OrderStatusPublic:
+      type: object
+      description: Interni status bez pravog tracking broja (osim kad je poslano)
+      properties:
+        order_reference:
+          type: string
+        status_label:
+          type: string
+          description: Human-readable tekst, npr. "Naručeno kod dobavljača"
+        estimated_delivery:
+          type: string
+          format: date
+          description: Fiksni offset od datuma narudžbe (config `shop.estimated_delivery_days`, default 21 dan)
+        tracking_number:
+          type: string
+          nullable: true
+          description: Postoji samo kad status = "shipped" ili "delivered"
+
+    OrderAdmin:
+      type: object
+      properties:
+        id:
+          type: integer
+        order_reference:
+          type: string
+        customer:
+          type: object
+          properties:
+            name:
+              type: string
+            email:
+              type: string
+        status:
+          type: string
+        total_price:
+          type: number
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              product_name:
+                type: string
+              size:
+                type: string
+              quantity:
+                type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    ValidationError:
+      type: object
+      properties:
+        message:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+    PaginationMeta:
+      type: object
+      properties:
+        current_page:
+          type: integer
+        total_pages:
+          type: integer
+        total_items:
+          type: integer
