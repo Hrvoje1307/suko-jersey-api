@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreProductImagesRequest;
 use App\Models\Product;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Storage;
 
 class AdminProductImageController extends Controller
 {
@@ -14,8 +15,11 @@ class AdminProductImageController extends Controller
         $sortOrder = (int) $product->images()->max('sort_order');
 
         $created = collect($request->file('images'))->map(function ($file) use ($product, &$sortOrder) {
+            // Baza drži jedan `url` stupac, pa se i za uploade sprema puni URL.
             return $product->images()->create([
-                'path' => $file->store("products/{$product->id}", 'public'),
+                'url' => Storage::disk('public')->url(
+                    $file->store("products/{$product->id}", 'public')
+                ),
                 'sort_order' => ++$sortOrder,
             ]);
         });
@@ -25,7 +29,7 @@ class AdminProductImageController extends Controller
 
         return response()->json([
             'images' => $created->map(fn ($image) => [
-                'url' => $image->url(),
+                'url' => $image->url,
                 'sort_order' => $image->sort_order,
                 'is_primary' => $image->fresh()->is_primary,
             ])->all(),

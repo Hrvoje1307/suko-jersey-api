@@ -57,9 +57,12 @@ class OrderPublicTest extends TestCase
 
         $order = Order::first();
         $this->assertSame('HR', $order->shipping_country);
-        $this->assertSame($product->name, $order->items->first()->product_name);
-        $this->assertSame('M', $order->items->first()->size);
-        $this->assertSame('79.50', $order->items->first()->unit_price);
+        // Stavka više ne drži snapshot — naziv i veličina se čitaju kroz varijantu.
+        $this->assertSame($product->name, $order->items->first()->variant->product->name);
+        $this->assertSame('M', $order->items->first()->variant->size);
+        $this->assertSame('79.50', $order->items->first()->price_at_purchase);
+        $this->assertSame('kupac@example.com', $order->customer->email);
+        $this->assertSame('Ivan Horvat', $order->customer->name);
 
         Notification::assertSentOnDemand(OrderPlaced::class);
     }
@@ -116,7 +119,7 @@ class OrderPublicTest extends TestCase
             'tracking_number_internal' => 'HR123456789',
         ]);
 
-        $this->getJson('/api/orders/lookup?order_reference='.$order->order_reference.'&email='.$order->customer_email)
+        $this->getJson('/api/orders/lookup?order_reference='.$order->order_reference.'&email='.$order->customer->email)
             ->assertOk()
             ->assertJsonPath('order_reference', $order->order_reference)
             ->assertJsonPath('status_label', 'Naručeno kod dobavljača')
@@ -131,7 +134,7 @@ class OrderPublicTest extends TestCase
             'tracking_number_internal' => 'HR123456789',
         ]);
 
-        $this->getJson('/api/orders/lookup?order_reference='.$order->order_reference.'&email='.$order->customer_email)
+        $this->getJson('/api/orders/lookup?order_reference='.$order->order_reference.'&email='.$order->customer->email)
             ->assertOk()
             ->assertJsonPath('tracking_number', 'HR123456789');
     }

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\Audience;
 use App\Enums\KitType;
+use App\Enums\Personalization;
 use App\Enums\ProductCategory;
 use App\Enums\ProductStatus;
 use Database\Factories\ProductFactory;
@@ -11,11 +12,10 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\Storage;
 
 #[Fillable([
     'name', 'club_or_team', 'category', 'kit_type', 'audience',
-    'season', 'price', 'description', 'model_3d_url', 'status',
+    'season', 'personalization', 'price', 'description', 'model_3d_url', 'status',
 ])]
 class Product extends Model
 {
@@ -28,6 +28,7 @@ class Product extends Model
             'category' => ProductCategory::class,
             'kit_type' => KitType::class,
             'audience' => Audience::class,
+            'personalization' => Personalization::class,
             'status' => ProductStatus::class,
             'price' => 'decimal:2',
         ];
@@ -43,6 +44,16 @@ class Product extends Model
     public function variants(): HasMany
     {
         return $this->hasMany(ProductVariant::class)->orderBy('id');
+    }
+
+    /**
+     * Gotova lista igrača/vozača — relevantna kad personalization dopušta preset.
+     *
+     * @return HasMany<ProductPlayer, $this>
+     */
+    public function players(): HasMany
+    {
+        return $this->hasMany(ProductPlayer::class)->orderBy('sort_order')->orderBy('id');
     }
 
     /**
@@ -65,7 +76,7 @@ class Product extends Model
      */
     public function syncExternalImages(array $urls): void
     {
-        $ownStoragePrefix = Storage::disk('public')->url('');
+        $ownStoragePrefix = ProductImage::ownStoragePrefix();
 
         $urls = array_filter(
             $urls,
@@ -78,7 +89,7 @@ class Product extends Model
 
         foreach ($urls as $url) {
             $this->images()->create([
-                'external_url' => $url,
+                'url' => $url,
                 'sort_order' => ++$sortOrder,
             ]);
         }

@@ -10,11 +10,14 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
 
-#[Fillable(['product_id', 'path', 'external_url', 'sort_order', 'is_primary'])]
+#[Fillable(['product_id', 'url', 'sort_order', 'is_primary'])]
 class ProductImage extends Model
 {
     /** @use HasFactory<ProductImageFactory> */
     use HasFactory;
+
+    /** Tablica ima samo created_at. */
+    const UPDATED_AT = null;
 
     protected function casts(): array
     {
@@ -31,16 +34,22 @@ class ProductImage extends Model
     }
 
     /**
-     * Vanjski URL se vraća doslovno; uploadani fajl kroz public disk.
+     * Baza drži jedan `url` stupac, pa se uploadane slike razlikuju od vanjskih
+     * po tome pokazuje li URL na vlastiti public disk.
      */
-    public function url(): string
+    public static function ownStoragePrefix(): string
     {
-        return $this->external_url ?? Storage::disk('public')->url($this->path);
+        return Storage::disk('public')->url('');
+    }
+
+    public function isExternal(): bool
+    {
+        return ! str_starts_with($this->url, static::ownStoragePrefix());
     }
 
     /** @param  Builder<ProductImage>  $query */
     public function scopeExternal($query): void
     {
-        $query->whereNotNull('external_url');
+        $query->where('url', 'not like', static::ownStoragePrefix().'%');
     }
 }

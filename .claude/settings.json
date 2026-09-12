@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php artisan migrate:status*)",
+      "Bash(php artisan migrate --database=supabase --pretend*)",
+      "Bash(php artisan db:show*)",
+      "Bash(php artisan test*)",
+      "Bash(vendor/bin/pint*)"
+    ],
+    "deny": [
+      "Bash(php artisan migrate:fresh*)",
+      "Bash(php artisan migrate:refresh*)",
+      "Bash(php artisan migrate:reset*)",
+      "Bash(php artisan migrate:rollback*)",
+      "Bash(php artisan db:wipe*)"
+    ]
+  }
+}

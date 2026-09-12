@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\Personalization;
+
 /**
  * Spec $ref-a CreateProductRequest za PUT, pa je izmjena full replace
  * s istim obaveznim poljima.
@@ -26,6 +28,7 @@ class UpdateProductRequest extends StoreProductRequest
             'description' => null,
             'model_3d_url' => null,
             'image_urls' => [],
+            'personalization' => Personalization::None->value,
         ], parent::validated());
 
         return is_null($key) ? $data : data_get($data, $key, $default);

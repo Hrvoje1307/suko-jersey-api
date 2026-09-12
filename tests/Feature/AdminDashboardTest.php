@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Models\AdminUser;
 use App\Models\Order;
 use App\Models\OrderItem;
-use App\Models\User;
+use App\Models\Product;
+use App\Models\ProductVariant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -14,16 +16,13 @@ class AdminDashboardTest extends TestCase
 
     protected function actingAsAdmin(): static
     {
-        return $this->actingAs(User::factory()->admin()->create(), 'sanctum');
+        return $this->actingAs(AdminUser::factory()->create(), 'sanctum');
     }
 
     public function test_requires_admin(): void
     {
         $this->getJson('/api/admin/dashboard')->assertStatus(401);
 
-        $this->actingAs(User::factory()->create(), 'sanctum')
-            ->getJson('/api/admin/dashboard')
-            ->assertStatus(403);
     }
 
     public function test_returns_monthly_totals_and_all_time_top_products(): void
@@ -42,9 +41,12 @@ class AdminDashboardTest extends TestCase
             'created_at' => now()->startOfMonth()->subDays(3),
         ]);
 
-        OrderItem::factory()->for($thisMonth)->create(['product_name' => 'Dres A', 'quantity' => 3]);
-        OrderItem::factory()->for($lastMonth)->create(['product_name' => 'Dres A', 'quantity' => 4]);
-        OrderItem::factory()->for($thisMonth)->create(['product_name' => 'Dres B', 'quantity' => 2]);
+        $a = ProductVariant::factory()->for(Product::factory()->create(['name' => 'Dres A']))->create();
+        $b = ProductVariant::factory()->for(Product::factory()->create(['name' => 'Dres B']))->create();
+
+        OrderItem::factory()->for($thisMonth)->create(['product_variant_id' => $a->id, 'quantity' => 3]);
+        OrderItem::factory()->for($lastMonth)->create(['product_variant_id' => $a->id, 'quantity' => 4]);
+        OrderItem::factory()->for($thisMonth)->create(['product_variant_id' => $b->id, 'quantity' => 2]);
 
         $response = $this->actingAsAdmin()->getJson('/api/admin/dashboard');
 

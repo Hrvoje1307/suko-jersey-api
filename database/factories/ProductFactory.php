@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Enums\Audience;
 use App\Enums\KitType;
+use App\Enums\Personalization;
 use App\Enums\ProductCategory;
 use App\Enums\ProductStatus;
 use App\Models\Product;
@@ -26,6 +27,7 @@ class ProductFactory extends Factory
             'kit_type' => fake()->randomElement(KitType::cases()),
             'audience' => fake()->randomElement(Audience::cases()),
             'season' => '2025/26',
+            'personalization' => Personalization::None,
             'price' => fake()->randomFloat(2, 40, 150),
             'description' => fake()->sentence(),
             'model_3d_url' => null,

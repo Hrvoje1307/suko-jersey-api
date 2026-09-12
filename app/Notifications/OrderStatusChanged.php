@@ -26,7 +26,7 @@ class OrderStatusChanged extends Notification implements ShouldQueue
     {
         $message = (new MailMessage)
             ->subject("Nova informacija o narudžbi {$this->order->order_reference}")
-            ->greeting("Pozdrav {$this->order->customer_name},")
+            ->greeting("Pozdrav {$this->order->customer->name},")
             ->line("Status vaše narudžbe {$this->order->order_reference} je promijenjen.")
             ->line('Novi status: '.$this->order->status->label());
 

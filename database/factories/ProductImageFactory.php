@@ -5,6 +5,7 @@ namespace Database\Factories;
 use App\Models\Product;
 use App\Models\ProductImage;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * @extends Factory<ProductImage>
@@ -18,8 +19,7 @@ class ProductImageFactory extends Factory
     {
         return [
             'product_id' => Product::factory(),
-            'path' => 'products/'.fake()->uuid().'.jpg',
-            'external_url' => null,
+            'url' => Storage::disk('public')->url('products/'.fake()->uuid().'.jpg'),
             'sort_order' => 0,
             'is_primary' => false,
         ];
@@ -33,8 +33,7 @@ class ProductImageFactory extends Factory
     public function external(?string $url = null): static
     {
         return $this->state(fn () => [
-            'path' => null,
-            'external_url' => $url ?? fake()->imageUrl(),
+            'url' => $url ?? fake()->imageUrl(),
         ]);
     }
 }

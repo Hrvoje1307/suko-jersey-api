@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Enums\Audience;
 use App\Enums\KitType;
+use App\Enums\Personalization;
 use App\Enums\ProductCategory;
 use App\Enums\ProductStatus;
 use Illuminate\Foundation\Http\FormRequest;
@@ -22,11 +23,12 @@ class StoreProductRequest extends FormRequest
             'category' => ['required', Rule::enum(ProductCategory::class)],
             'kit_type' => ['required', Rule::enum(KitType::class)],
             'audience' => ['required', Rule::enum(Audience::class)],
-            'season' => ['nullable', 'string', 'max:255'],
+            'season' => ['nullable', 'string', 'max:50'],
+            'personalization' => ['sometimes', Rule::enum(Personalization::class)],
             // Jedan 3D model po dresu, ali više slika.
-            'model_3d_url' => ['nullable', 'url', 'max:2048'],
+            'model_3d_url' => ['nullable', 'url', 'max:500'],
             'image_urls' => ['sometimes', 'array', 'max:20'],
-            'image_urls.*' => ['required', 'url', 'max:2048', 'distinct'],
+            'image_urls.*' => ['required', 'url', 'max:500', 'distinct'],
             'price' => ['required', 'numeric', 'min:0', 'max:999999.99'],
             'description' => ['nullable', 'string'],
             'status' => ['sometimes', Rule::enum(ProductStatus::class)],

@@ -99,6 +99,29 @@ return [
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
+        /*
+         * Supabase (Postgres) — namjerno zasebna konekcija, a ne default.
+         * Koristi se eksplicitno: `php artisan migrate --database=supabase`.
+         *
+         * Host uzmi iz Session poolera (port 5432), ne iz Transaction poolera
+         * (6543) — potonji ne drži prepared statemente ni duge transakcije,
+         * pa DDL migracije na njemu pucaju.
+         */
+        'supabase' => [
+            'driver' => 'pgsql',
+            'url' => env('SUPABASE_DB_URL'),
+            'host' => env('SUPABASE_DB_HOST'),
+            'port' => env('SUPABASE_DB_PORT', '5432'),
+            'database' => env('SUPABASE_DB_DATABASE', 'postgres'),
+            'username' => env('SUPABASE_DB_USERNAME'),
+            'password' => env('SUPABASE_DB_PASSWORD'),
+            'charset' => env('DB_CHARSET', 'utf8'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => env('SUPABASE_DB_SSLMODE', 'require'),
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),

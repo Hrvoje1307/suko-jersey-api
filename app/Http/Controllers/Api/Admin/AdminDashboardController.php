@@ -13,9 +13,12 @@ class AdminDashboardController extends Controller
     {
         $monthStart = now()->startOfMonth();
 
+        // order_items nema snapshot naziva, pa se do imena ide kroz varijantu.
         $topProducts = OrderItem::query()
-            ->selectRaw('product_name, SUM(quantity) as units_sold')
-            ->groupBy('product_name')
+            ->join('product_variants', 'product_variants.id', '=', 'order_items.product_variant_id')
+            ->join('products', 'products.id', '=', 'product_variants.product_id')
+            ->selectRaw('products.name as product_name, SUM(order_items.quantity) as units_sold')
+            ->groupBy('products.name')
             ->orderByDesc('units_sold')
             ->limit(5)
             ->get()

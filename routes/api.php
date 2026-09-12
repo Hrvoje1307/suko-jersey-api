@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Admin\AdminDashboardController;
 use App\Http\Controllers\Api\Admin\AdminOrderController;
 use App\Http\Controllers\Api\Admin\AdminProductController;
 use App\Http\Controllers\Api\Admin\AdminProductImageController;
+use App\Http\Controllers\Api\Admin\AdminProductPlayerController;
 use App\Http\Controllers\Api\Admin\AdminProductVariantController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
@@ -37,6 +38,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::delete('products/{product}', [AdminProductController::class, 'destroy']);
     Route::post('products/{product}/images', [AdminProductImageController::class, 'store']);
     Route::put('products/{product}/variants', [AdminProductVariantController::class, 'update']);
+    Route::put('products/{product}/players', [AdminProductPlayerController::class, 'update']);
 
     Route::get('orders', [AdminOrderController::class, 'index']);
     Route::put('orders/{order}/status', [AdminOrderController::class, 'updateStatus']);

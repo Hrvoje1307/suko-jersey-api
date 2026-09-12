@@ -7,13 +7,15 @@ use Database\Factories\OrderFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 #[Fillable([
-    'order_reference', 'customer_name', 'customer_email', 'customer_phone',
-    'shipping_line1', 'shipping_line2', 'shipping_city', 'shipping_postal_code',
-    'shipping_country', 'status', 'total_price', 'tracking_number_internal',
+    'order_reference', 'customer_id',
+    'shipping_address_line1', 'shipping_address_line2', 'shipping_city',
+    'shipping_postal_code', 'shipping_country',
+    'status', 'total_price', 'tracking_number_internal',
 ])]
 class Order extends Model
 {
@@ -26,6 +28,12 @@ class Order extends Model
             'status' => OrderStatus::class,
             'total_price' => 'decimal:2',
         ];
+    }
+
+    /** @return BelongsTo<Customer, $this> */
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class);
     }
 
     /** @return HasMany<OrderItem, $this> */

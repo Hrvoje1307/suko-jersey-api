@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class ProductPublicTest extends TestCase
@@ -100,8 +101,8 @@ class ProductPublicTest extends TestCase
     public function test_primary_image_url_falls_back_to_first_image(): void
     {
         $product = Product::factory()->create();
-        ProductImage::factory()->for($product)->create(['path' => 'products/a.jpg', 'sort_order' => 2]);
-        ProductImage::factory()->for($product)->create(['path' => 'products/b.jpg', 'sort_order' => 1]);
+        ProductImage::factory()->for($product)->create(['url' => Storage::disk('public')->url('products/a.jpg'), 'sort_order' => 2]);
+        ProductImage::factory()->for($product)->create(['url' => Storage::disk('public')->url('products/b.jpg'), 'sort_order' => 1]);
 
         $url = $this->getJson('/api/products')->json('data.0.primary_image_url');
 

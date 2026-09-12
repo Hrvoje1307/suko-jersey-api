@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Enums\OrderStatus;
+use App\Models\AdminUser;
 use App\Models\Order;
 use App\Models\OrderItem;
-use App\Models\User;
+use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Notifications\OrderStatusChanged;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
@@ -17,7 +19,7 @@ class AdminOrderTest extends TestCase
 
     protected function actingAsAdmin(): static
     {
-        return $this->actingAs(User::factory()->admin()->create(), 'sanctum');
+        return $this->actingAs(AdminUser::factory()->create(), 'sanctum');
     }
 
     public function test_requires_authentication(): void
@@ -25,17 +27,14 @@ class AdminOrderTest extends TestCase
         $this->getJson('/api/admin/orders')->assertStatus(401);
     }
 
-    public function test_rejects_non_admin_token(): void
-    {
-        $this->actingAs(User::factory()->create(), 'sanctum')
-            ->getJson('/api/admin/orders')
-            ->assertStatus(403);
-    }
-
     public function test_index_returns_bare_array_in_spec_shape(): void
     {
         $order = Order::factory()->create(['total_price' => 120.00]);
-        OrderItem::factory()->for($order)->create(['product_name' => 'Dres', 'size' => 'L', 'quantity' => 2]);
+        $variant = ProductVariant::factory()
+            ->for(Product::factory()->create(['name' => 'Dres']))
+            ->create(['size' => 'L']);
+
+        OrderItem::factory()->for($order)->create(['product_variant_id' => $variant->id, 'quantity' => 2]);
 
         $response = $this->actingAsAdmin()->getJson('/api/admin/orders');
 
@@ -44,10 +43,13 @@ class AdminOrderTest extends TestCase
 
         $response->assertJsonStructure([[
             'id', 'order_reference', 'customer' => ['name', 'email'],
-            'status', 'total_price', 'items' => [['product_name', 'size', 'quantity']], 'created_at',
+            'status', 'total_price',
+            'items' => [['product_name', 'size', 'quantity', 'player_name', 'player_number', 'player_source']],
+            'created_at',
         ]])
             ->assertJsonPath('0.total_price', 120)
-            ->assertJsonPath('0.items.0.product_name', 'Dres');
+            ->assertJsonPath('0.items.0.product_name', 'Dres')
+            ->assertJsonPath('0.items.0.size', 'L');
     }
 
     public function test_index_filters_by_status(): void

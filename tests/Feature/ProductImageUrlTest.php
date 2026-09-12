@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\AdminUser;
 use App\Models\Product;
 use App\Models\ProductImage;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -16,7 +16,7 @@ class ProductImageUrlTest extends TestCase
 
     protected function actingAsAdmin(): static
     {
-        return $this->actingAs(User::factory()->admin()->create(), 'sanctum');
+        return $this->actingAs(AdminUser::factory()->create(), 'sanctum');
     }
 
     /**
@@ -119,7 +119,7 @@ class ProductImageUrlTest extends TestCase
     public function test_get_put_round_trip_does_not_duplicate_uploaded_images(): void
     {
         $product = Product::factory()->create();
-        ProductImage::factory()->for($product)->primary()->create(['path' => 'products/1/front.png']);
+        ProductImage::factory()->for($product)->primary()->create(['url' => Storage::disk('public')->url('products/1/front.png')]);
         ProductImage::factory()->for($product)->external('https://cdn.example.com/back.jpg')->create(['sort_order' => 2]);
 
         // Klijent dohvati proizvod i vrati cijeli images[] natrag u image_urls.

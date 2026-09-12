@@ -16,7 +16,7 @@ class AdminOrderController extends Controller
 {
     public function index(AdminOrderIndexRequest $request): JsonResponse
     {
-        $orders = Order::with('items')
+        $orders = Order::with(['customer', 'items.productPlayer', 'items.variant.product'])
             ->when($request->input('status'), fn ($q, $v) => $q->where('status', $v))
             ->orderByDesc('id')
             ->get();
@@ -41,12 +41,12 @@ class AdminOrderController extends Controller
         $order->save();
 
         if ($statusChanged) {
-            Notification::route('mail', $order->customer_email)
+            Notification::route('mail', $order->customer->email)
                 ->notify(new OrderStatusChanged($order));
         }
 
         return response()->json(
-            (new OrderAdminResource($order->load('items')))->resolve($request)
+            (new OrderAdminResource($order->load(['customer', 'items.productPlayer', 'items.variant.product'])))->resolve($request)
         );
     }
 }

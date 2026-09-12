@@ -26,7 +26,7 @@ class OrderPlaced extends Notification implements ShouldQueue
     {
         return (new MailMessage)
             ->subject("Potvrda narudžbe {$this->order->order_reference}")
-            ->greeting("Pozdrav {$this->order->customer_name},")
+            ->greeting("Pozdrav {$this->order->customer->name},")
             ->line('Hvala na narudžbi! Zaprimili smo je i uskoro je šaljemo dobavljaču.')
             ->line("Broj narudžbe: {$this->order->order_reference}")
             ->line('Ukupan iznos: '.number_format((float) $this->order->total_price, 2).' EUR')

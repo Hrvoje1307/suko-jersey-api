@@ -2,12 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\AdminUser;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -19,7 +19,7 @@ class AdminProductTest extends TestCase
 
     protected function actingAsAdmin(): static
     {
-        return $this->actingAs(User::factory()->admin()->create(), 'sanctum');
+        return $this->actingAs(AdminUser::factory()->create(), 'sanctum');
     }
 
     /**
@@ -42,13 +42,6 @@ class AdminProductTest extends TestCase
     public function test_requires_authentication(): void
     {
         $this->getJson('/api/admin/products')->assertStatus(401);
-    }
-
-    public function test_rejects_non_admin_token(): void
-    {
-        $this->actingAs(User::factory()->create(), 'sanctum')
-            ->getJson('/api/admin/products')
-            ->assertStatus(403);
     }
 
     public function test_index_returns_bare_array_including_drafts(): void
@@ -126,44 +119,33 @@ class AdminProductTest extends TestCase
             ->assertJsonPath('status', 'active');
     }
 
-    public function test_variants_update_preserves_order_history_for_removed_size(): void
+    public function test_variants_update_refuses_to_remove_an_ordered_size(): void
     {
         $product = Product::factory()->create();
         $small = ProductVariant::factory()->for($product)->create(['size' => 'S', 'stock_quantity' => 3]);
         ProductVariant::factory()->for($product)->create(['size' => 'M', 'stock_quantity' => 3]);
 
         $order = Order::factory()->create();
-        OrderItem::factory()->for($order)->create([
-            'product_variant_id' => $small->id,
-            'product_name' => $product->name,
-            'size' => 'S',
-        ]);
+        OrderItem::factory()->for($order)->create(['product_variant_id' => $small->id]);
 
+        // order_items.product_variant_id je NOT NULL FK bez ON DELETE, pa se
+        // naručena veličina ne može ukloniti bez gubitka povijesti narudžbe.
         $this->actingAsAdmin()
             ->putJson("/api/admin/products/{$product->id}/variants", [
                 'variants' => [['size' => 'M', 'stock_quantity' => 3]],
             ])
-            ->assertOk()
-            ->assertJsonCount(1, 'variants');
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('variants');
 
-        $item = $order->fresh()->items->first();
-        $this->assertNull($item->product_variant_id);
-        $this->assertSame('S', $item->size);
-        $this->assertSame($product->name, $item->product_name);
+        $this->assertSame(2, $product->variants()->count());
+        $this->assertSame($small->id, $order->fresh()->items->first()->product_variant_id);
     }
 
-    public function test_destroy_returns_204_and_preserves_order_history(): void
+    public function test_destroy_returns_204_and_cascades_to_variants_and_images(): void
     {
         $product = Product::factory()->create();
-        $variant = ProductVariant::factory()->for($product)->create(['size' => 'XL']);
+        ProductVariant::factory()->for($product)->create(['size' => 'XL']);
         ProductImage::factory()->for($product)->create();
-
-        $order = Order::factory()->create();
-        OrderItem::factory()->for($order)->create([
-            'product_variant_id' => $variant->id,
-            'product_name' => $product->name,
-            'size' => 'XL',
-        ]);
 
         $this->actingAsAdmin()
             ->deleteJson("/api/admin/products/{$product->id}")
@@ -172,11 +154,23 @@ class AdminProductTest extends TestCase
         $this->assertDatabaseCount('products', 0);
         $this->assertDatabaseCount('product_variants', 0);
         $this->assertDatabaseCount('product_images', 0);
+    }
 
-        $item = $order->fresh()->items->first();
-        $this->assertNull($item->product_variant_id);
-        $this->assertSame($product->name, $item->product_name);
-        $this->assertSame('XL', $item->size);
+    public function test_destroy_is_refused_for_an_ordered_product(): void
+    {
+        $product = Product::factory()->create();
+        $variant = ProductVariant::factory()->for($product)->create(['size' => 'XL']);
+
+        $order = Order::factory()->create();
+        OrderItem::factory()->for($order)->create(['product_variant_id' => $variant->id]);
+
+        // Bez snapshota u order_items brisanje bi odnijelo i povijest narudžbe.
+        $this->actingAsAdmin()
+            ->deleteJson("/api/admin/products/{$product->id}")
+            ->assertStatus(409);
+
+        $this->assertDatabaseCount('products', 1);
+        $this->assertSame($variant->id, $order->fresh()->items->first()->product_variant_id);
     }
 
     public function test_variants_update_replaces_missing_sizes(): void

@@ -26,7 +26,7 @@ class ProductSummaryResource extends JsonResource
             'season' => $this->season,
             // Spec traži `number` — decimal cast bi ovdje vratio string.
             'price' => (float) $this->price,
-            'primary_image_url' => $this->primaryImage()?->url(),
+            'primary_image_url' => $this->primaryImage()?->url,
             'status' => $this->status->value,
         ];
     }

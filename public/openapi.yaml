@@ -58,6 +58,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: personalization
+          in: query
+          description: Filtrira proizvode po tipu personalizacije imena/broja
+          schema:
+            type: string
+            enum: [none, preset_only, custom_text, both]
         - name: status
           in: query
           description: Default je "active" — draft/sold_out se ne vraćaju javno osim ako nije eksplicitno traženo
@@ -288,8 +294,12 @@ paths:
       responses:
         '204':
           description: |
-            Obrisano. Slike i varijante padaju kaskadno, ali povijest narudžbi ostaje
-            čitljiva — order_items drži snapshot naziva, veličine i cijene.
+            Obrisano. Slike i varijante padaju kaskadno.
+        '409':
+          description: |
+            Proizvod se nalazi u narudžbama. order_items pokazuje na varijantu preko
+            NOT NULL FK-a bez ON DELETE, pa bi brisanje odnijelo i povijest narudžbi —
+            za povlačenje iz ponude koristi status `sold_out` ili `draft`.
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -368,7 +378,60 @@ paths:
                         type: integer
       responses:
         '200':
-          description: Varijante ažurirane. Replace semantika — veličine koje nisu poslane se brišu.
+          description: |
+            Varijante ažurirane. Replace semantika — veličine koje nisu poslane se brišu.
+            Iznimka je veličina koja se već nalazi u nekoj narudžbi: nju se ne može
+            ukloniti (422), jer order_items na nju pokazuje NOT NULL FK-om.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Proizvod nije pronađen
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /admin/products/{id}/players:
+    put:
+      tags: [Admin - Products]
+      summary: Postavljanje gotove liste igrača/vozača za personalizaciju (relevantno kad je personalization = 'preset_only' ili 'both')
+      security: [{ sanctum: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [players]
+              properties:
+                players:
+                  type: array
+                  items:
+                    type: object
+                    required: [player_name]
+                    properties:
+                      player_name:
+                        type: string
+                      player_number:
+                        type: string
+                        nullable: true
+      responses:
+        '200':
+          description: |
+            Lista igrača ažurirana. Replace semantika — lista se postavlja u cijelosti,
+            a redoslijed u tijelu zahtjeva određuje sort_order. Igrači koji ostaju na
+            listi (isto ime i broj) zadržavaju svoj id, pa postojeće narudžbe i dalje
+            pokazuju na njih. Uklanjanje igrača koji se već nalazi u narudžbi vraća 422.
           content:
             application/json:
               schema:
@@ -543,6 +606,26 @@ components:
           properties:
             description:
               type: string
+            personalization:
+              type: string
+              enum: [none, preset_only, custom_text, both]
+              description: >
+                'none' = nema personalizacije, 'preset_only' = samo iz gotove liste
+                (vidi available_players), 'custom_text' = slobodan upis imena/broja,
+                'both' = kupac bira jedno od dvoje
+            available_players:
+              type: array
+              description: Gotova lista igrača/vozača za ovaj proizvod (prazno kad personalization = 'none' ili 'custom_text')
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  player_name:
+                    type: string
+                  player_number:
+                    type: string
+                    nullable: true
             model_3d_url:
               type: string
               nullable: true
@@ -596,6 +679,12 @@ components:
           enum: [kids, men, women, unisex]
         season:
           type: string
+          maxLength: 50
+        personalization:
+          type: string
+          enum: [none, preset_only, custom_text, both]
+          default: none
+          description: Gotova lista igrača se postavlja zasebno preko PUT /admin/products/{id}/players
         model_3d_url:
           type: string
           nullable: true
@@ -648,6 +737,26 @@ components:
                 type: integer
               quantity:
                 type: integer
+              product_player_id:
+                type: integer
+                nullable: true
+                description: >
+                  Odabir s gotove liste (available_players) — dopušten kad proizvod ima
+                  personalization 'preset_only' ili 'both'; obavezan kod 'preset_only'
+              custom_player_name:
+                type: string
+                nullable: true
+                description: >
+                  Slobodan upis imena — dopušten kad proizvod ima personalization
+                  'custom_text' ili 'both'; obavezan kod 'custom_text'.
+                  Kod 'both' se ne smije slati zajedno s product_player_id
+              custom_player_number:
+                type: string
+                nullable: true
+                description: >
+                  Slobodan upis broja — dopušten samo ondje gdje je dopušten i
+                  custom_player_name, i nikad zajedno s product_player_id
+                  (igrač s liste već nosi svoj broj)
         shipping_address:
           type: object
           required: [line1, city, postal_code, country]
@@ -722,6 +831,18 @@ components:
                 type: string
               quantity:
                 type: integer
+              player_name:
+                type: string
+                nullable: true
+                description: Ime za tisak — s gotove liste ili iz slobodnog upisa kupca; null kad nema personalizacije
+              player_number:
+                type: string
+                nullable: true
+              player_source:
+                type: string
+                nullable: true
+                enum: [preset, custom, null]
+                description: Odakle dolazi ime — 'preset' (product_players) ili 'custom' (slobodan upis)
         created_at:
           type: string
           format: date-time

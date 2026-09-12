@@ -26,7 +26,7 @@ class OrderController extends Controller
     {
         $order = Order::query()
             ->where('order_reference', $request->validated('order_reference'))
-            ->where('customer_email', $request->validated('email'))
+            ->whereHas('customer', fn ($q) => $q->where('email', $request->validated('email')))
             ->firstOrFail();
 
         return new OrderStatusPublicResource($order);

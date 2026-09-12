@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\OrderStatus;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\ProductVariant;
 use App\Notifications\OrderPlaced;
@@ -15,7 +16,7 @@ use Illuminate\Validation\ValidationException;
 class OrderService
 {
     /**
-     * @param  array{customer: array{email: string, name: string, phone?: string|null}, items: array<int, array{product_variant_id: int, quantity: int}>, shipping_address: array{line1: string, line2?: string|null, city: string, postal_code: string, country: string}}  $data
+     * @param  array{customer: array{email: string, name: string, phone?: string|null}, items: array<int, array{product_variant_id: int, quantity: int, product_player_id?: int|null, custom_player_name?: string|null, custom_player_number?: string|null}>, shipping_address: array{line1: string, line2?: string|null, city: string, postal_code: string, country: string}}  $data
      */
     public function create(array $data): Order
     {
@@ -27,18 +28,26 @@ class OrderService
         $lines = $this->buildLines($data['items'], $variants);
 
         $total = array_sum(array_map(
-            fn (array $line) => $line['unit_price'] * $line['quantity'],
+            fn (array $line) => $line['price_at_purchase'] * $line['quantity'],
             $lines
         ));
 
         $order = DB::transaction(function () use ($data, $lines, $total) {
+            // Kupci se prepoznaju po emailu (unique index); podaci zadnje
+            // narudžbe prepisuju ranije upisano ime i telefon.
+            $customer = Customer::updateOrCreate(
+                ['email' => $data['customer']['email']],
+                [
+                    'name' => $data['customer']['name'],
+                    'phone' => $data['customer']['phone'] ?? null,
+                ],
+            );
+
             $order = Order::create([
                 'order_reference' => $this->generateReference(),
-                'customer_name' => $data['customer']['name'],
-                'customer_email' => $data['customer']['email'],
-                'customer_phone' => $data['customer']['phone'] ?? null,
-                'shipping_line1' => $data['shipping_address']['line1'],
-                'shipping_line2' => $data['shipping_address']['line2'] ?? null,
+                'customer_id' => $customer->id,
+                'shipping_address_line1' => $data['shipping_address']['line1'],
+                'shipping_address_line2' => $data['shipping_address']['line2'] ?? null,
                 'shipping_city' => $data['shipping_address']['city'],
                 'shipping_postal_code' => $data['shipping_address']['postal_code'],
                 'shipping_country' => $data['shipping_address']['country'],
@@ -51,17 +60,17 @@ class OrderService
             return $order;
         });
 
-        Notification::route('mail', $order->customer_email)
+        Notification::route('mail', $order->customer->email)
             ->notify(new OrderPlaced($order));
 
         return $order;
     }
 
     /**
-     * Validira zalihu i pretvara stavke u snapshot retke za order_items.
+     * Validira zalihu i gradi retke za order_items.
      * Zaliha se ne dekrementira — admin je održava ručno.
      *
-     * @param  array<int, array{product_variant_id: int, quantity: int}>  $items
+     * @param  array<int, array{product_variant_id: int, quantity: int, product_player_id?: int|null, custom_player_name?: string|null, custom_player_number?: string|null}>  $items
      * @param  Collection<int, ProductVariant>  $variants
      * @return array<int, array<string, mixed>>
      */
@@ -91,10 +100,12 @@ class OrderService
 
             $lines[] = [
                 'product_variant_id' => $variant->id,
-                'product_name' => $variant->product->name,
-                'size' => $variant->size,
-                'unit_price' => $variant->product->price,
+                'price_at_purchase' => $variant->product->price,
                 'quantity' => $item['quantity'],
+                // Personalizaciju je StoreOrderRequest već uskladio s products.personalization.
+                'product_player_id' => $item['product_player_id'] ?? null,
+                'custom_player_name' => $item['custom_player_name'] ?? null,
+                'custom_player_number' => $item['custom_player_number'] ?? null,
             ];
         }
 

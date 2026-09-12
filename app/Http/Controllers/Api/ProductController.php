@@ -20,6 +20,7 @@ class ProductController extends Controller
             ->when($request->input('kit_type'), fn ($q, $v) => $q->where('kit_type', $v))
             ->when($request->input('audience'), fn ($q, $v) => $q->where('audience', $v))
             ->when($request->input('season'), fn ($q, $v) => $q->where('season', $v))
+            ->when($request->input('personalization'), fn ($q, $v) => $q->where('personalization', $v))
             // Bez eksplicitnog filtera javno se vraćaju samo aktivni proizvodi.
             ->where('status', $request->input('status', ProductStatus::Active->value))
             ->orderByDesc('id')
@@ -33,6 +34,6 @@ class ProductController extends Controller
     {
         abort_if($product->status === ProductStatus::Draft, 404);
 
-        return new ProductDetailResource($product->load(['images', 'variants']));
+        return new ProductDetailResource($product->load(['images', 'variants', 'players']));
     }
 }
