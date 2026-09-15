@@ -28,6 +28,10 @@ class ProductSummaryResource extends JsonResource
             'price' => (float) $this->price,
             'primary_image_url' => $this->primaryImage()?->url,
             'status' => $this->status->value,
+            // Kartica u listi mora znati koje veličine postoje da bi se
+            // veličina mogla odabrati bez dohvata detalja proizvoda.
+            'available_sizes' => $this->availableSizes(),
+            'created_at' => $this->created_at?->toISOString(),
         ];
     }
 }

@@ -22,6 +22,9 @@ class Product extends Model
     /** @use HasFactory<ProductFactory> */
     use HasFactory;
 
+    /** Kanonski redoslijed slovnih veličina; brojčane (dječje) idu nakon njih. */
+    private const SIZE_ORDER = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
+
     protected function casts(): array
     {
         return [
@@ -54,6 +57,33 @@ class Product extends Model
     public function players(): HasMany
     {
         return $this->hasMany(ProductPlayer::class)->orderBy('sort_order')->orderBy('id');
+    }
+
+    /**
+     * Veličine koje proizvod uopće ima, bez obzira na stanje zaliha —
+     * rasprodane veličine se i dalje prikazuju (proizvod tada ima status
+     * `sold_out`). Sortirano: slovne veličine kanonski, brojčane uzlazno.
+     *
+     * @return array<int, string>
+     */
+    public function availableSizes(): array
+    {
+        return $this->variants
+            ->pluck('size')
+            ->unique()
+            ->sortBy(function (string $size) {
+                $index = array_search(strtoupper($size), self::SIZE_ORDER, true);
+
+                if ($index !== false) {
+                    return sprintf('0-%02d', $index);
+                }
+
+                return is_numeric($size)
+                    ? sprintf('1-%010.2f', (float) $size)
+                    : '2-'.strtoupper($size);
+            })
+            ->values()
+            ->all();
     }
 
     /**

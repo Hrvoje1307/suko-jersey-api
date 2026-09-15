@@ -18,6 +18,8 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::get('products', [ProductController::class, 'index']);
+// Mora ostati iznad products/{product}, inače wildcard proguta `filters`.
+Route::get('products/filters', [ProductController::class, 'filters']);
 Route::get('products/{product}', [ProductController::class, 'show']);
 
 Route::post('orders', [OrderController::class, 'store']);
