@@ -2,7 +2,6 @@
 
 namespace App\Http\Resources;
 
-use App\Enums\Personalization;
 use App\Models\Product;
 use Illuminate\Http\Request;
 
@@ -21,8 +20,6 @@ class ProductDetailResource extends ProductSummaryResource
     {
         return array_merge(parent::toArray($request), [
             'description' => $this->description,
-            // Svježe kreiran model još nema DB default učitan, pa fallback na 'none'.
-            'personalization' => ($this->personalization ?? Personalization::None)->value,
             'available_players' => $this->players->map(fn ($player) => [
                 'id' => $player->id,
                 'player_name' => $player->player_name,
@@ -33,11 +30,6 @@ class ProductDetailResource extends ProductSummaryResource
                 'url' => $image->url,
                 'sort_order' => $image->sort_order,
                 'is_primary' => $image->is_primary,
-            ])->all(),
-            'variants' => $this->variants->map(fn ($variant) => [
-                'id' => $variant->id,
-                'size' => $variant->size,
-                'stock_quantity' => $variant->stock_quantity,
             ])->all(),
         ]);
     }

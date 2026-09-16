@@ -10,7 +10,7 @@ info:
     (`image_urls` u tijelu proizvoda).
 
     Admin endpointi traže Sanctum bearer token iz `POST /admin/login`.
-  version: 1.2.0
+  version: 1.3.0
 
 servers:
   - url: https://api.tvojdomena.com/api
@@ -653,15 +653,23 @@ components:
         status:
           type: string
           enum: [active, sold_out, draft]
-        available_sizes:
+        personalization:
+          type: string
+          enum: [none, preset_only, custom_text, both]
+          description: >
+            'none' = nema personalizacije, 'preset_only' = samo iz gotove liste
+            (vidi available_players na detalju), 'custom_text' = slobodan upis
+            imena/broja, 'both' = kupac bira jedno od dvoje. U listi je zato da
+            kartica zna traži li proizvod personalizaciju prije dodavanja u košaricu.
+        variants:
           type: array
           description: >
-            Veličine koje proizvod ima, bez obzira na zalihu, sortirane
-            (slovne kanonski S→XXXL, brojčane uzlazno). Kartica u listi tako
-            zna ponuditi izbor veličine bez dohvata detalja.
+            Sve veličine proizvoda, sortirane (slovne kanonski S→XXXL, brojčane
+            uzlazno). Rasprodane ostaju u listi sa `stock_quantity: 0` — frontend
+            ih prikazuje zaključane. `id` je `product_variant_id` koji traži
+            POST /orders, pa kartica može složiti liniju košarice bez dohvata detalja.
           items:
-            type: string
-          example: [S, M, L, XL]
+            $ref: '#/components/schemas/ProductVariant'
         created_at:
           type: string
           format: date-time
@@ -689,13 +697,6 @@ components:
           properties:
             description:
               type: string
-            personalization:
-              type: string
-              enum: [none, preset_only, custom_text, both]
-              description: >
-                'none' = nema personalizacije, 'preset_only' = samo iz gotove liste
-                (vidi available_players), 'custom_text' = slobodan upis imena/broja,
-                'both' = kupac bira jedno od dvoje
             available_players:
               type: array
               description: Gotova lista igrača/vozača za ovaj proizvod (prazno kad personalization = 'none' ili 'custom_text')
@@ -718,17 +719,20 @@ components:
               description: Uploadane i vanjske (image_urls) slike zajedno, sortirane po sort_order
               items:
                 $ref: '#/components/schemas/ProductImage'
-            variants:
-              type: array
-              items:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                  size:
-                    type: string
-                  stock_quantity:
-                    type: integer
+
+    ProductVariant:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Ide u `product_variant_id` na POST /orders
+        size:
+          type: string
+          description: Slobodan string — uz S–XXL postoje i dječje veličine (128, 140, 152)
+          example: M
+        stock_quantity:
+          type: integer
+          example: 12
 
     ProductImage:
       type: object

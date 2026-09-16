@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 
 #[Fillable([
     'name', 'club_or_team', 'category', 'kit_type', 'audience',
@@ -60,30 +61,34 @@ class Product extends Model
     }
 
     /**
-     * Veličine koje proizvod uopće ima, bez obzira na stanje zaliha —
-     * rasprodane veličine se i dalje prikazuju (proizvod tada ima status
-     * `sold_out`). Sortirano: slovne veličine kanonski, brojčane uzlazno.
+     * Varijante poredane po veličini, a ne po id-u — birač veličine na
+     * frontendu ih tako prikazuje redom. Rasprodane (stock 0) ostaju u listi;
+     * frontend ih prikazuje zaključane.
      *
-     * @return array<int, string>
+     * @return Collection<int, ProductVariant>
      */
-    public function availableSizes(): array
+    public function sortedVariants(): Collection
     {
         return $this->variants
-            ->pluck('size')
-            ->unique()
-            ->sortBy(function (string $size) {
-                $index = array_search(strtoupper($size), self::SIZE_ORDER, true);
+            ->sortBy(fn (ProductVariant $variant) => self::sizeSortKey($variant->size))
+            ->values();
+    }
 
-                if ($index !== false) {
-                    return sprintf('0-%02d', $index);
-                }
+    /**
+     * Slovne veličine kanonski (S prije M prije L), brojčane dječje uzlazno
+     * iza njih, sve ostalo abecedno na kraju.
+     */
+    private static function sizeSortKey(string $size): string
+    {
+        $index = array_search(strtoupper($size), self::SIZE_ORDER, true);
 
-                return is_numeric($size)
-                    ? sprintf('1-%010.2f', (float) $size)
-                    : '2-'.strtoupper($size);
-            })
-            ->values()
-            ->all();
+        if ($index !== false) {
+            return sprintf('0-%02d', $index);
+        }
+
+        return is_numeric($size)
+            ? sprintf('1-%010.2f', (float) $size)
+            : '2-'.strtoupper($size);
     }
 
     /**

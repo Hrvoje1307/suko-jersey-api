@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Enums\Personalization;
 use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -28,9 +29,16 @@ class ProductSummaryResource extends JsonResource
             'price' => (float) $this->price,
             'primary_image_url' => $this->primaryImage()?->url,
             'status' => $this->status->value,
-            // Kartica u listi mora znati koje veličine postoje da bi se
-            // veličina mogla odabrati bez dohvata detalja proizvoda.
-            'available_sizes' => $this->availableSizes(),
+            // Svježe kreiran model još nema DB default učitan, pa fallback na 'none'.
+            'personalization' => ($this->personalization ?? Personalization::None)->value,
+            // Kartica u listi mora imati id varijante da bi "quick add" mogao
+            // sastaviti liniju koju POST /orders prihvaća; isti oblik kao na
+            // detalju, pa frontend reusa tip.
+            'variants' => $this->sortedVariants()->map(fn ($variant) => [
+                'id' => $variant->id,
+                'size' => $variant->size,
+                'stock_quantity' => $variant->stock_quantity,
+            ])->all(),
             'created_at' => $this->created_at?->toISOString(),
         ];
     }

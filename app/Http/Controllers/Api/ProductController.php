@@ -15,8 +15,9 @@ class ProductController extends Controller
     public function index(ProductIndexRequest $request): ProductCollection
     {
         $products = Product::query()
-            // `variants` se učitava nefiltrirano i kad je zadan `size` —
-            // `available_sizes` mora prikazati sve veličine proizvoda.
+            // `variants` se učitava nefiltrirano i kad je zadan `size` — kartica
+            // mora ponuditi sve veličine proizvoda, ne samo filtriranu. Eager
+            // load je i jedino što drži listu na konstantnom broju upita.
             ->with(['images', 'variants'])
             ->when($request->input('category'), fn ($q, $v) => $q->where('category', $v))
             // Djelomično i case-insensitive (`ilike` na Postgresu) — frontend
