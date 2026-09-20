@@ -18,6 +18,7 @@ class AdminOrderController extends Controller
     {
         $orders = Order::with(['customer', 'items.productPlayer', 'items.variant.product'])
             ->when($request->input('status'), fn ($q, $v) => $q->where('status', $v))
+            ->when($request->input('payment_status'), fn ($q, $v) => $q->where('payment_status', $v))
             ->orderByDesc('id')
             ->get();
 

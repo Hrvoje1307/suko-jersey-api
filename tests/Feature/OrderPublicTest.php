@@ -3,17 +3,26 @@
 namespace Tests\Feature;
 
 use App\Enums\OrderStatus;
+use App\Enums\PaymentStatus;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
-use App\Notifications\OrderPlaced;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
+use Tests\Concerns\FakesCheckout;
 use Tests\TestCase;
 
 class OrderPublicTest extends TestCase
 {
+    use FakesCheckout;
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->fakeCheckout();
+    }
 
     /**
      * @param  array<int, array{product_variant_id: int, quantity: int}>  $items
@@ -49,8 +58,10 @@ class OrderPublicTest extends TestCase
         ]));
 
         $response->assertCreated()
-            ->assertJsonStructure(['order_reference', 'total_price', 'status'])
+            ->assertJsonStructure(['order_reference', 'total_price', 'status', 'payment_status', 'stripe_checkout_url'])
             ->assertJsonPath('status', 'ordered')
+            // Narudžba nastaje neplaćena — plaćanje potvrđuje tek webhook.
+            ->assertJsonPath('payment_status', 'unpaid')
             ->assertJsonPath('total_price', 159);
 
         $this->assertMatchesRegularExpression('/^ORD-[A-Z0-9]{5}$/', $response->json('order_reference'));
@@ -64,7 +75,33 @@ class OrderPublicTest extends TestCase
         $this->assertSame('kupac@example.com', $order->customer->email);
         $this->assertSame('Ivan Horvat', $order->customer->name);
 
-        Notification::assertSentOnDemand(OrderPlaced::class);
+        $this->assertSame(PaymentStatus::Unpaid, $order->payment_status);
+        $this->assertSame('cs_test_'.$order->order_reference, $order->stripe_checkout_session_id);
+        $this->assertSame(
+            'https://checkout.stripe.com/c/pay/cs_test_'.$order->order_reference,
+            $response->json('stripe_checkout_url'),
+        );
+
+        // Potvrda narudžbe ide tek kad Stripe javi da je plaćeno.
+        Notification::assertNothingSent();
+    }
+
+    public function test_returns_502_when_checkout_session_cannot_be_opened(): void
+    {
+        Notification::fake();
+        $this->checkout->shouldFail = true;
+
+        $variant = ProductVariant::factory()->create(['stock_quantity' => 5]);
+
+        $this->postJson('/api/orders', $this->payload([
+            ['product_variant_id' => $variant->id, 'quantity' => 1],
+        ]))->assertStatus(502);
+
+        // Narudžba ostaje kao trag pokušaja, ali neplaćena i bez sesije.
+        $order = Order::sole();
+        $this->assertSame(PaymentStatus::Unpaid, $order->payment_status);
+        $this->assertNull($order->stripe_checkout_session_id);
+        Notification::assertNothingSent();
     }
 
     public function test_stock_is_not_decremented(): void
@@ -114,7 +151,7 @@ class OrderPublicTest extends TestCase
 
     public function test_lookup_returns_status_without_tracking_before_shipping(): void
     {
-        $order = Order::factory()->create([
+        $order = Order::factory()->paid()->create([
             'status' => OrderStatus::SentToSupplier,
             'tracking_number_internal' => 'HR123456789',
         ]);
@@ -123,13 +160,14 @@ class OrderPublicTest extends TestCase
             ->assertOk()
             ->assertJsonPath('order_reference', $order->order_reference)
             ->assertJsonPath('status_label', 'Naručeno kod dobavljača')
+            ->assertJsonPath('payment_status', 'paid')
             ->assertJsonPath('tracking_number', null)
             ->assertJsonPath('estimated_delivery', $order->created_at->copy()->addDays(21)->toDateString());
     }
 
     public function test_lookup_exposes_tracking_once_shipped(): void
     {
-        $order = Order::factory()->create([
+        $order = Order::factory()->paid()->create([
             'status' => OrderStatus::Shipped,
             'tracking_number_internal' => 'HR123456789',
         ]);
@@ -152,5 +190,60 @@ class OrderPublicTest extends TestCase
         $this->getJson('/api/orders/lookup')
             ->assertStatus(422)
             ->assertJsonValidationErrors(['order_reference', 'email']);
+    }
+
+    public function test_lookup_hides_fulfillment_label_until_payment_lands(): void
+    {
+        // status='ordered' + unpaid: kupcu se ne smije reći "Narudžba
+        // zaprimljena" dok plaćanje nije prošlo.
+        $order = Order::factory()->create(['status' => OrderStatus::Ordered]);
+
+        $this->getJson('/api/orders/lookup?order_reference='.$order->order_reference.'&email='.$order->customer->email)
+            ->assertOk()
+            ->assertJsonPath('payment_status', 'unpaid')
+            ->assertJsonPath('status_label', 'Čeka plaćanje');
+    }
+
+    public function test_payment_status_lookup_by_reference_alone(): void
+    {
+        $order = Order::factory()->paid()->create(['status' => OrderStatus::Ordered]);
+
+        $this->getJson('/api/orders/'.$order->order_reference.'/status')
+            ->assertOk()
+            ->assertExactJson([
+                'order_reference' => $order->order_reference,
+                'payment_status' => 'paid',
+                'status_label' => 'Narudžba zaprimljena',
+            ]);
+    }
+
+    public function test_payment_status_reports_pending_before_webhook(): void
+    {
+        $order = Order::factory()->create();
+
+        $this->getJson('/api/orders/'.$order->order_reference.'/status')
+            ->assertOk()
+            ->assertJsonPath('payment_status', 'unpaid')
+            ->assertJsonPath('status_label', 'Čeka plaćanje');
+    }
+
+    public function test_payment_status_never_leaks_tracking_or_customer(): void
+    {
+        $order = Order::factory()->paid()->create([
+            'status' => OrderStatus::Shipped,
+            'tracking_number_internal' => 'HR123456789',
+        ]);
+
+        // Ruta je pogodiva samom referencom, pa ne smije otkriti ništa osobno.
+        $this->getJson('/api/orders/'.$order->order_reference.'/status')
+            ->assertOk()
+            ->assertJsonMissing(['tracking_number' => 'HR123456789'])
+            ->assertJsonMissingPath('estimated_delivery')
+            ->assertJsonMissingPath('total_price');
+    }
+
+    public function test_payment_status_404_for_unknown_reference(): void
+    {
+        $this->getJson('/api/orders/ORD-NEMA/status')->assertNotFound();
     }
 }

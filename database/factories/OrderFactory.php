@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Enums\OrderStatus;
+use App\Enums\PaymentStatus;
 use App\Models\Customer;
 use App\Models\Order;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -27,8 +28,23 @@ class OrderFactory extends Factory
             'shipping_postal_code' => substr(fake()->postcode(), 0, 20),
             'shipping_country' => 'HR',
             'status' => OrderStatus::Ordered,
+            'payment_status' => PaymentStatus::Unpaid,
             'total_price' => fake()->randomFloat(2, 40, 300),
             'tracking_number_internal' => null,
+            'stripe_checkout_session_id' => null,
+            'stripe_payment_intent_id' => null,
         ];
+    }
+
+    /**
+     * Plaćena narudžba — stanje u kojem je stvarno vidljiva kupcu i adminu.
+     */
+    public function paid(): static
+    {
+        return $this->state(fn () => [
+            'payment_status' => PaymentStatus::Paid,
+            'stripe_checkout_session_id' => 'cs_test_'.Str::random(24),
+            'stripe_payment_intent_id' => 'pi_test_'.Str::random(24),
+        ]);
     }
 }

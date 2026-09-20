@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Enums\PaymentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -29,7 +30,11 @@ class AdminDashboardController extends Controller
 
         return response()->json([
             'total_orders_this_month' => Order::where('created_at', '>=', $monthStart)->count(),
-            'revenue_this_month' => (float) Order::where('created_at', '>=', $monthStart)->sum('total_price'),
+            // Samo plaćeno — napušteni Stripe checkouti ostaju u tablici
+            // kao `unpaid` i ne smiju napuhati prihod.
+            'revenue_this_month' => (float) Order::where('created_at', '>=', $monthStart)
+                ->where('payment_status', PaymentStatus::Paid)
+                ->sum('total_price'),
             'top_products' => $topProducts,
         ]);
     }

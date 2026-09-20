@@ -3,22 +3,25 @@
 namespace App\Services;
 
 use App\Enums\OrderStatus;
+use App\Enums\PaymentStatus;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\ProductVariant;
-use App\Notifications\OrderPlaced;
+use App\Services\Payments\CheckoutGateway;
+use App\Services\Payments\PlacedOrder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class OrderService
 {
+    public function __construct(private CheckoutGateway $checkout) {}
+
     /**
      * @param  array{customer: array{email: string, name: string, phone?: string|null}, items: array<int, array{product_variant_id: int, quantity: int, product_player_id?: int|null, custom_player_name?: string|null, custom_player_number?: string|null}>, shipping_address: array{line1: string, line2?: string|null, city: string, postal_code: string, country: string}}  $data
      */
-    public function create(array $data): Order
+    public function create(array $data): PlacedOrder
     {
         $variants = ProductVariant::with('product')
             ->whereIn('id', array_column($data['items'], 'product_variant_id'))
@@ -52,6 +55,9 @@ class OrderService
                 'shipping_postal_code' => $data['shipping_address']['postal_code'],
                 'shipping_country' => $data['shipping_address']['country'],
                 'status' => OrderStatus::Ordered,
+                // Narudžba nastaje neplaćena; `status` je fulfillment os i
+                // ostaje `ordered`, plaćanje potvrđuje tek Stripe webhook.
+                'payment_status' => PaymentStatus::Unpaid,
                 'total_price' => $total,
             ]);
 
@@ -60,10 +66,15 @@ class OrderService
             return $order;
         });
 
-        Notification::route('mail', $order->customer->email)
-            ->notify(new OrderPlaced($order));
+        // Mrežni poziv namjerno ide izvan transakcije — inače bi Stripeova
+        // latencija držala lockove na orders/customers.
+        $session = $this->checkout->createSession($order);
 
-        return $order;
+        $order->update(['stripe_checkout_session_id' => $session->id]);
+
+        // OrderPlaced mail NE ide odavde: šalje ga webhook kad plaćanje prođe,
+        // inače bi svaki napušteni checkout dobio potvrdu narudžbe.
+        return new PlacedOrder($order, $session->url);
     }
 
     /**

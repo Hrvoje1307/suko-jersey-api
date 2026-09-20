@@ -24,6 +24,7 @@ class OrderAdminResource extends JsonResource
                 'email' => $this->customer->email,
             ],
             'status' => $this->status->value,
+            'payment_status' => $this->payment_status->value,
             'total_price' => (float) $this->total_price,
             'items' => $this->items->map(fn ($item) => [
                 // order_items više ne drži snapshot — naziv i veličina se čitaju

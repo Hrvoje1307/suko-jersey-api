@@ -10,7 +10,7 @@ info:
     (`image_urls` u tijelu proizvoda).
 
     Admin endpointi traže Sanctum bearer token iz `POST /admin/login`.
-  version: 1.3.0
+  version: 1.4.0
 
 servers:
   - url: https://api.tvojdomena.com/api
@@ -21,6 +21,7 @@ servers:
 tags:
   - name: Products (public)
   - name: Orders (public)
+  - name: Webhooks
   - name: Admin - Auth
   - name: Admin - Products
   - name: Admin - Orders
@@ -173,7 +174,12 @@ paths:
   /orders:
     post:
       tags: [Orders (public)]
-      summary: Kreiranje nove narudžbe
+      summary: Kreiranje nove narudžbe i otvaranje Stripe Checkouta
+      description: >
+        Narudžba se zapisuje s `payment_status: unpaid` i otvara se Stripe
+        Checkout sesija. Frontend kupca redirecta na `stripe_checkout_url`;
+        plaćanje potvrđuje tek `POST /webhooks/stripe`. Polje `status` je
+        fulfillment os i ostaje `ordered` neovisno o plaćanju.
       requestBody:
         required: true
         content:
@@ -189,6 +195,8 @@ paths:
                 $ref: '#/components/schemas/OrderConfirmation'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '502':
+          description: Stripe nije uspio otvoriti Checkout sesiju
 
   /orders/lookup:
     get:
@@ -218,6 +226,80 @@ paths:
           description: Narudžba nije pronađena
         '422':
           $ref: '#/components/responses/ValidationError'
+
+  /orders/{id}/status:
+    get:
+      tags: [Orders (public)]
+      summary: Status plaćanja samo po referenci narudžbe
+      description: >
+        Namijenjeno stranici na koju Stripe vrati kupca nakon Checkouta, dok
+        čeka webhook potvrdu. Referenca je kratka i pogodiva, pa odgovor
+        namjerno ne sadrži ništa osobno — ni email, ni adresu, ni iznos, ni
+        tracking. Puni status je iza `/orders/lookup`, koji traži i email.
+        Ograničeno na 30 zahtjeva u minuti.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: order_reference, npr. ORD-8F3K2
+          schema:
+            type: string
+          example: ORD-8F3K2
+      responses:
+        '200':
+          description: Status plaćanja
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPaymentStatus'
+        '404':
+          description: Narudžba nije pronađena
+        '429':
+          description: Previše zahtjeva
+
+  # ============================================
+  # WEBHOOKS
+  # ============================================
+  /webhooks/stripe:
+    post:
+      tags: [Webhooks]
+      summary: Stripe webhook
+      description: >
+        Poziva ga isključivo Stripe. Autentikacija je HMAC potpis u zaglavlju
+        `Stripe-Signature`, provjeren protiv `STRIPE_WEBHOOK_SECRET` nad sirovim
+        tijelom zahtjeva; CSRF ne postoji jer je `api` grupa stateless.
+        Obrađuje `checkout.session.completed` (→ `payment_status: paid`, šalje
+        mail potvrde), te `checkout.session.expired` i
+        `payment_intent.payment_failed` (→ `payment_status: failed`, nikad ne
+        poništava već plaćenu narudžbu). Obrada je idempotentna jer Stripe
+        ponavlja dostave. Nakon uspješne verifikacije uvijek vraća 200, i kad
+        narudžba nije pronađena — svaki drugi status gura Stripe u retry petlju.
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        description: Stripe Event objekt (sirovi JSON, potpis se računa nad bajtovima)
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Event zaprimljen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                    example: true
+        '400':
+          description: Potpis nije valjan ili nedostaje
 
   # ============================================
   # ADMIN — AUTH
@@ -514,6 +596,11 @@ paths:
           schema:
             type: string
             enum: [ordered, sent_to_supplier, arrived_hr, shipped, delivered]
+        - name: payment_status
+          in: query
+          description: Izdvaja npr. samo plaćene narudžbe, bez napuštenih checkouta
+          schema:
+            $ref: '#/components/schemas/PaymentStatus'
       responses:
         '200':
           description: Lista narudžbi
@@ -870,6 +957,15 @@ components:
           type: number
         status:
           type: string
+          description: Fulfillment status; uvijek "ordered" kod kreiranja
+          enum: [ordered, sent_to_supplier, arrived_hr, shipped, delivered]
+        payment_status:
+          $ref: '#/components/schemas/PaymentStatus'
+        stripe_checkout_url:
+          type: string
+          format: uri
+          description: URL na koji frontend odmah redirecta kupca
+          example: https://checkout.stripe.com/c/pay/cs_test_a1b2c3
 
     OrderStatusPublic:
       type: object
@@ -877,9 +973,14 @@ components:
       properties:
         order_reference:
           type: string
+        payment_status:
+          $ref: '#/components/schemas/PaymentStatus'
         status_label:
           type: string
-          description: Human-readable tekst, npr. "Naručeno kod dobavljača"
+          description: >
+            Human-readable tekst. Dok plaćanje nije prošlo vraća stanje
+            plaćanja ("Čeka plaćanje"), a tek nakon toga fulfillment status
+            ("Naručeno kod dobavljača").
         estimated_delivery:
           type: string
           format: date
@@ -888,6 +989,26 @@ components:
           type: string
           nullable: true
           description: Postoji samo kad status = "shipped" ili "delivered"
+
+    PaymentStatus:
+      type: string
+      description: Stanje naplate — zasebna os od fulfillment `status`
+      enum: [unpaid, paid, failed, refunded]
+
+    OrderPaymentStatus:
+      type: object
+      description: >
+        Minimalan javni odgovor za lookup samom referencom — bez osobnih
+        podataka i bez trackinga.
+      properties:
+        order_reference:
+          type: string
+          example: ORD-8F3K2
+        payment_status:
+          $ref: '#/components/schemas/PaymentStatus'
+        status_label:
+          type: string
+          example: Narudžba zaprimljena
 
     OrderAdmin:
       type: object
@@ -905,6 +1026,8 @@ components:
               type: string
         status:
           type: string
+        payment_status:
+          $ref: '#/components/schemas/PaymentStatus'
         total_price:
           type: number
         items:

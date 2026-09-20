@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\OrderStatus;
+use App\Enums\PaymentStatus;
 use Database\Factories\OrderFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -16,6 +17,7 @@ use Illuminate\Support\Carbon;
     'shipping_address_line1', 'shipping_address_line2', 'shipping_city',
     'shipping_postal_code', 'shipping_country',
     'status', 'total_price', 'tracking_number_internal',
+    'payment_status', 'stripe_checkout_session_id', 'stripe_payment_intent_id',
 ])]
 class Order extends Model
 {
@@ -26,8 +28,18 @@ class Order extends Model
     {
         return [
             'status' => OrderStatus::class,
+            'payment_status' => PaymentStatus::class,
             'total_price' => 'decimal:2',
         ];
+    }
+
+    /**
+     * Plaćanje je zasebna os od `status` — dok ovo nije true, narudžba je
+     * samo zapisana namjera, ne i stvarna narudžba.
+     */
+    public function isPaid(): bool
+    {
+        return $this->payment_status === PaymentStatus::Paid;
     }
 
     /** @return BelongsTo<Customer, $this> */

@@ -28,6 +28,25 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Stripe Checkout
+    |--------------------------------------------------------------------------
+    |
+    | `webhook_secret` se razlikuje lokalno (whsec_ iz `stripe listen`) i u
+    | produkciji (endpoint secret iz Dashboarda). Success/cancel URL-ovi su
+    | frontend (Next.js) rute na koje Stripe vraća kupca.
+    |
+    */
+
+    'stripe' => [
+        'secret' => env('STRIPE_SECRET_KEY'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+        'currency' => env('STRIPE_CURRENCY', 'eur'),
+        'success_url' => env('FRONTEND_SUCCESS_URL'),
+        'cancel_url' => env('FRONTEND_CANCEL_URL'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

@@ -7,9 +7,13 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
+ * Javni status po samoj referenci. Namjerno minimalan — referenca je kratka i
+ * pogodiva, pa se osobni podaci i tracking otkrivaju samo na /orders/lookup,
+ * koji uz referencu traži i email.
+ *
  * @mixin Order
  */
-class OrderStatusPublicResource extends JsonResource
+class OrderPaymentStatusResource extends JsonResource
 {
     public static $wrap = null;
 
@@ -21,16 +25,9 @@ class OrderStatusPublicResource extends JsonResource
         return [
             'order_reference' => $this->order_reference,
             'payment_status' => $this->payment_status->value,
-            // Dok plaćanje nije prošlo, fulfillment status ("Narudžba
-            // zaprimljena") bi kupca krivo uvjerio da je sve gotovo.
             'status_label' => $this->isPaid()
                 ? $this->status->label()
                 : $this->payment_status->label(),
-            'estimated_delivery' => $this->estimatedDelivery()->toDateString(),
-            // Tracking broj je interni — kupcu se otkriva tek kad je pošiljka poslana.
-            'tracking_number' => $this->status->exposesTracking()
-                ? $this->tracking_number_internal
-                : null,
         ];
     }
 }

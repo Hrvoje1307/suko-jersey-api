@@ -27,16 +27,16 @@ class AdminDashboardTest extends TestCase
 
     public function test_returns_monthly_totals_and_all_time_top_products(): void
     {
-        $thisMonth = Order::factory()->create([
+        $thisMonth = Order::factory()->paid()->create([
             'total_price' => 100.00,
             'created_at' => now()->startOfMonth()->addDay(),
         ]);
-        Order::factory()->create([
+        Order::factory()->paid()->create([
             'total_price' => 50.00,
             'created_at' => now()->startOfMonth()->addDays(2),
         ]);
 
-        $lastMonth = Order::factory()->create([
+        $lastMonth = Order::factory()->paid()->create([
             'total_price' => 999.00,
             'created_at' => now()->startOfMonth()->subDays(3),
         ]);
@@ -67,5 +67,24 @@ class AdminDashboardTest extends TestCase
             ->assertJsonPath('total_orders_this_month', 0)
             ->assertJsonPath('revenue_this_month', 0)
             ->assertJsonPath('top_products', []);
+    }
+
+    public function test_unpaid_orders_do_not_count_towards_revenue(): void
+    {
+        Order::factory()->paid()->create([
+            'total_price' => 100.00,
+            'created_at' => now()->startOfMonth()->addDay(),
+        ]);
+
+        // Napušteni Stripe checkout — zaprimljen, ali nije prihod.
+        Order::factory()->create([
+            'total_price' => 500.00,
+            'created_at' => now()->startOfMonth()->addDay(),
+        ]);
+
+        $this->actingAsAdmin()->getJson('/api/admin/dashboard')
+            ->assertOk()
+            ->assertJsonPath('total_orders_this_month', 2)
+            ->assertJsonPath('revenue_this_month', 100);
     }
 }

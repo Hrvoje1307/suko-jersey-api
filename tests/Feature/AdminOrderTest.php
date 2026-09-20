@@ -127,4 +127,23 @@ class AdminOrderTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors('status');
     }
+
+    public function test_index_filters_by_payment_status(): void
+    {
+        Order::factory()->create();                 // unpaid
+        $paid = Order::factory()->paid()->create();
+
+        $this->actingAsAdmin()->getJson('/api/admin/orders?payment_status=paid')
+            ->assertOk()
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.id', $paid->id)
+            ->assertJsonPath('0.payment_status', 'paid');
+    }
+
+    public function test_index_rejects_invalid_payment_status_filter(): void
+    {
+        $this->actingAsAdmin()->getJson('/api/admin/orders?payment_status=nesto')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('payment_status');
+    }
 }

@@ -8,6 +8,9 @@ CREATE TYPE product_status AS ENUM ('active', 'sold_out', 'draft');
 CREATE TYPE kit_type AS ENUM ('home', 'away', 'third', 'fourth');
 CREATE TYPE audience_type AS ENUM ('kids', 'men', 'women', 'unisex');
 CREATE TYPE personalization_type AS ENUM ('none', 'preset_only', 'custom_text', 'both');
+-- Naplata je zasebna os od order_status: narudžba nastaje 'unpaid' i tek
+-- Stripe webhook je prebaci u 'paid'.
+CREATE TYPE payment_status AS ENUM ('unpaid', 'paid', 'failed', 'refunded');
 CREATE TYPE order_status AS ENUM (
     'ordered',           -- kupac naručio
     'sent_to_supplier',  -- ti naručio kod dobavljača
@@ -115,6 +118,9 @@ CREATE TABLE orders (
     total_price                 NUMERIC(10, 2) NOT NULL,
     tracking_number_internal    VARCHAR(100),           -- HR -> kupac tracking (samo kad status = shipped)
     order_reference             VARCHAR(20) NOT NULL,   -- javni kod za kupca da provjeri status, npr. "ORD-8F3K2"
+    payment_status              payment_status NOT NULL DEFAULT 'unpaid',
+    stripe_checkout_session_id  VARCHAR(255),           -- cs_..., veza za checkout.session.* evente
+    stripe_payment_intent_id    VARCHAR(255),           -- pi_..., upisuje se kad plaćanje prođe
     created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -122,6 +128,10 @@ CREATE TABLE orders (
 CREATE UNIQUE INDEX idx_orders_reference ON orders(order_reference);
 CREATE INDEX idx_orders_customer_id ON orders(customer_id);
 CREATE INDEX idx_orders_status ON orders(status);
+CREATE INDEX idx_orders_payment_status ON orders(payment_status);
+-- UNIQUE je siguran: Postgres dopušta više NULL-ova u unique indeksu.
+CREATE UNIQUE INDEX idx_orders_stripe_checkout_session_id ON orders(stripe_checkout_session_id);
+CREATE INDEX idx_orders_stripe_payment_intent_id ON orders(stripe_payment_intent_id);
 
 -- ============================================
 -- ORDER ITEMS

@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\Admin\AdminProductPlayerController;
 use App\Http\Controllers\Api\Admin\AdminProductVariantController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -23,7 +24,23 @@ Route::get('products/filters', [ProductController::class, 'filters']);
 Route::get('products/{product}', [ProductController::class, 'show']);
 
 Route::post('orders', [OrderController::class, 'store']);
+// Mora ostati iznad orders/{reference}/status iz istog razloga kao products/filters.
 Route::get('orders/lookup', [OrderController::class, 'lookup']);
+// Pogodivo samo referencom, pa ide uz eksplicitan limit — API grupa nema throttleApi().
+Route::get('orders/{reference}/status', [OrderController::class, 'paymentStatus'])
+    ->middleware('throttle:30,1');
+
+/*
+|--------------------------------------------------------------------------
+| Webhooks
+|--------------------------------------------------------------------------
+|
+| Bez throttlea — Stripe ponavlja dostave i 429 bi ga držao u retry petlji.
+| Autentikacija je potpis u Stripe-Signature zaglavlju, ne token.
+|
+*/
+
+Route::post('webhooks/stripe', StripeWebhookController::class);
 
 /*
 |--------------------------------------------------------------------------

@@ -11,11 +11,20 @@ use App\Models\ProductPlayer;
 use App\Models\ProductVariant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
+use Tests\Concerns\FakesCheckout;
 use Tests\TestCase;
 
 class ProductPersonalizationTest extends TestCase
 {
+    use FakesCheckout;
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->fakeCheckout();
+    }
 
     protected function actingAsAdmin(): static
     {
