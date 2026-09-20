@@ -2,11 +2,9 @@
 
 namespace Database\Factories;
 
-use App\Enums\Audience;
-use App\Enums\KitType;
-use App\Enums\Personalization;
 use App\Enums\ProductCategory;
 use App\Enums\ProductStatus;
+use App\Enums\ProductType;
 use App\Models\Product;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -24,12 +22,12 @@ class ProductFactory extends Factory
             'name' => fake()->words(3, true).' Jersey',
             'club_or_team' => fake()->company(),
             'category' => fake()->randomElement(ProductCategory::cases()),
-            'kit_type' => fake()->randomElement(KitType::cases()),
-            'audience' => fake()->randomElement(Audience::cases()),
+            'type' => ProductType::Adult,
             'season' => '2025/26',
-            'personalization' => Personalization::None,
             'price' => fake()->randomFloat(2, 40, 150),
             'description' => fake()->sentence(),
+            'sizes' => ['S', 'M', 'L', 'XL'],
+            'images' => [],
             'model_3d_url' => null,
             'status' => ProductStatus::Active,
         ];
@@ -43,5 +41,21 @@ class ProductFactory extends Factory
     public function soldOut(): static
     {
         return $this->state(fn () => ['status' => ProductStatus::SoldOut]);
+    }
+
+    /**
+     * @param  array<int, string>  $sizes
+     */
+    public function sizes(array $sizes): static
+    {
+        return $this->state(fn () => ['sizes' => $sizes]);
+    }
+
+    /**
+     * @param  array<int, string>  $urls
+     */
+    public function images(array $urls): static
+    {
+        return $this->state(fn () => ['images' => $urls]);
     }
 }

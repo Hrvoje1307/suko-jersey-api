@@ -13,7 +13,7 @@ class StripeCheckoutGateway implements CheckoutGateway
 
     public function createSession(Order $order): CheckoutSession
     {
-        $order->loadMissing(['customer', 'items.productPlayer', 'items.variant.product']);
+        $order->loadMissing(['customer', 'items.product']);
 
         try {
             $session = $this->stripe->checkout->sessions->create([
@@ -47,14 +47,12 @@ class StripeCheckoutGateway implements CheckoutGateway
      */
     protected function lineItem(OrderItem $item): array
     {
-        $product = $item->variant->product;
-
         $data = [
-            'name' => "{$product->name} ({$item->variant->size})",
+            'name' => "{$item->product->name} ({$item->size})",
         ];
 
-        if ($description = $this->personalization($item)) {
-            $data['description'] = $description;
+        if ($label = $item->printLabel()) {
+            $data['description'] = "Tisak: {$label}";
         }
 
         return [
@@ -67,19 +65,6 @@ class StripeCheckoutGateway implements CheckoutGateway
                 'product_data' => $data,
             ],
         ];
-    }
-
-    /**
-     * Ime i broj na dresu, bilo s gotove liste bilo slobodno upisani.
-     */
-    protected function personalization(OrderItem $item): ?string
-    {
-        $name = $item->productPlayer?->player_name ?? $item->custom_player_name;
-        $number = $item->productPlayer?->player_number ?? $item->custom_player_number;
-
-        $tisak = trim(implode(' ', array_filter([$name, $number])));
-
-        return $tisak === '' ? null : "Tisak: {$tisak}";
     }
 
     protected function successUrl(Order $order): string

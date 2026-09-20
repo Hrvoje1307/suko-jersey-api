@@ -6,7 +6,6 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Models\Order;
 use App\Models\Product;
-use App\Models\ProductVariant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Tests\Concerns\FakesCheckout;
@@ -25,7 +24,7 @@ class OrderPublicTest extends TestCase
     }
 
     /**
-     * @param  array<int, array{product_variant_id: int, quantity: int}>  $items
+     * @param  array<int, array{product_id: int, size: string, quantity: int}>  $items
      * @return array<string, mixed>
      */
     protected function payload(array $items): array
@@ -50,11 +49,10 @@ class OrderPublicTest extends TestCase
     {
         Notification::fake();
 
-        $product = Product::factory()->create(['price' => 79.50]);
-        $variant = ProductVariant::factory()->for($product)->create(['size' => 'M', 'stock_quantity' => 5]);
+        $product = Product::factory()->create(['price' => 79.50, 'sizes' => ['S', 'M', 'L']]);
 
         $response = $this->postJson('/api/orders', $this->payload([
-            ['product_variant_id' => $variant->id, 'quantity' => 2],
+            ['product_id' => $product->id, 'size' => 'M', 'quantity' => 2],
         ]));
 
         $response->assertCreated()
@@ -68,9 +66,9 @@ class OrderPublicTest extends TestCase
 
         $order = Order::first();
         $this->assertSame('HR', $order->shipping_country);
-        // Stavka više ne drži snapshot — naziv i veličina se čitaju kroz varijantu.
-        $this->assertSame($product->name, $order->items->first()->variant->product->name);
-        $this->assertSame('M', $order->items->first()->variant->size);
+        // Naziv se čita kroz proizvod, a veličina je snapshot na stavci.
+        $this->assertSame($product->name, $order->items->first()->product->name);
+        $this->assertSame('M', $order->items->first()->size);
         $this->assertSame('79.50', $order->items->first()->price_at_purchase);
         $this->assertSame('kupac@example.com', $order->customer->email);
         $this->assertSame('Ivan Horvat', $order->customer->name);
@@ -91,10 +89,10 @@ class OrderPublicTest extends TestCase
         Notification::fake();
         $this->checkout->shouldFail = true;
 
-        $variant = ProductVariant::factory()->create(['stock_quantity' => 5]);
+        $product = Product::factory()->create();
 
         $this->postJson('/api/orders', $this->payload([
-            ['product_variant_id' => $variant->id, 'quantity' => 1],
+            ['product_id' => $product->id, 'size' => 'M', 'quantity' => 1],
         ]))->assertStatus(502);
 
         // Narudžba ostaje kao trag pokušaja, ali neplaćena i bez sesije.
@@ -104,42 +102,57 @@ class OrderPublicTest extends TestCase
         Notification::assertNothingSent();
     }
 
-    public function test_stock_is_not_decremented(): void
+    public function test_any_listed_size_can_be_ordered_in_any_quantity(): void
     {
         Notification::fake();
 
-        $variant = ProductVariant::factory()->create(['stock_quantity' => 5]);
+        // Zalihe nema — navedena veličina je uvijek dostupna, bez obzira na količinu.
+        $product = Product::factory()->sizes(['S', 'M'])->create();
 
         $this->postJson('/api/orders', $this->payload([
-            ['product_variant_id' => $variant->id, 'quantity' => 3],
+            ['product_id' => $product->id, 'size' => 'S', 'quantity' => 50],
         ]))->assertCreated();
-
-        $this->assertSame(5, $variant->fresh()->stock_quantity);
     }
 
-    public function test_rejects_order_exceeding_stock(): void
+    public function test_rejects_size_the_product_does_not_offer(): void
     {
         Notification::fake();
 
-        $variant = ProductVariant::factory()->create(['size' => 'S', 'stock_quantity' => 1]);
+        $product = Product::factory()->sizes(['S', 'M'])->create();
 
         $this->postJson('/api/orders', $this->payload([
-            ['product_variant_id' => $variant->id, 'quantity' => 2],
+            ['product_id' => $product->id, 'size' => 'XXL', 'quantity' => 1],
         ]))
             ->assertStatus(422)
-            ->assertJsonValidationErrors('items.0.quantity');
+            ->assertJsonValidationErrors('items.0.size');
 
         $this->assertDatabaseCount('orders', 0);
         Notification::assertNothingSent();
     }
 
-    public function test_rejects_unknown_variant(): void
+    public function test_rejects_unknown_product(): void
     {
         $this->postJson('/api/orders', $this->payload([
-            ['product_variant_id' => 999, 'quantity' => 1],
+            ['product_id' => 999, 'size' => 'M', 'quantity' => 1],
         ]))
             ->assertStatus(422)
-            ->assertJsonValidationErrors('items.0.product_variant_id');
+            ->assertJsonValidationErrors('items.0.product_id');
+    }
+
+    public function test_rejects_draft_product(): void
+    {
+        Notification::fake();
+
+        // Draft nije javno vidljiv u katalogu, pa se ne smije ni naručiti.
+        $product = Product::factory()->draft()->create();
+
+        $this->postJson('/api/orders', $this->payload([
+            ['product_id' => $product->id, 'size' => 'M', 'quantity' => 1],
+        ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('items.0.product_id');
+
+        $this->assertDatabaseCount('orders', 0);
     }
 
     public function test_requires_customer_and_shipping_address(): void

@@ -7,7 +7,6 @@ use App\Models\AdminUser;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
-use App\Models\ProductVariant;
 use App\Notifications\OrderStatusChanged;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
@@ -30,11 +29,13 @@ class AdminOrderTest extends TestCase
     public function test_index_returns_bare_array_in_spec_shape(): void
     {
         $order = Order::factory()->create(['total_price' => 120.00]);
-        $variant = ProductVariant::factory()
-            ->for(Product::factory()->create(['name' => 'Dres']))
-            ->create(['size' => 'L']);
+        $product = Product::factory()->create(['name' => 'Dres']);
 
-        OrderItem::factory()->for($order)->create(['product_variant_id' => $variant->id, 'quantity' => 2]);
+        OrderItem::factory()->for($order)->create([
+            'product_id' => $product->id,
+            'size' => 'L',
+            'quantity' => 2,
+        ]);
 
         $response = $this->actingAsAdmin()->getJson('/api/admin/orders');
 
@@ -44,11 +45,12 @@ class AdminOrderTest extends TestCase
         $response->assertJsonStructure([[
             'id', 'order_reference', 'customer' => ['name', 'email'],
             'status', 'total_price',
-            'items' => [['product_name', 'size', 'quantity', 'player_name', 'player_number', 'player_source']],
+            'items' => [['product_id', 'product_name', 'size', 'quantity', 'player_name', 'player_number']],
             'created_at',
         ]])
             ->assertJsonPath('0.total_price', 120)
             ->assertJsonPath('0.items.0.product_name', 'Dres')
+            ->assertJsonPath('0.items.0.product_id', $product->id)
             ->assertJsonPath('0.items.0.size', 'L');
     }
 

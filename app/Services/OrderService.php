@@ -6,7 +6,7 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Models\Customer;
 use App\Models\Order;
-use App\Models\ProductVariant;
+use App\Models\Product;
 use App\Services\Payments\CheckoutGateway;
 use App\Services\Payments\PlacedOrder;
 use Illuminate\Support\Collection;
@@ -19,16 +19,15 @@ class OrderService
     public function __construct(private CheckoutGateway $checkout) {}
 
     /**
-     * @param  array{customer: array{email: string, name: string, phone?: string|null}, items: array<int, array{product_variant_id: int, quantity: int, product_player_id?: int|null, custom_player_name?: string|null, custom_player_number?: string|null}>, shipping_address: array{line1: string, line2?: string|null, city: string, postal_code: string, country: string}}  $data
+     * @param  array{customer: array{email: string, name: string, phone?: string|null}, items: array<int, array{product_id: int, size: string, quantity: int, custom_player_name?: string|null, custom_player_number?: string|null}>, shipping_address: array{line1: string, line2?: string|null, city: string, postal_code: string, country: string}}  $data
      */
     public function create(array $data): PlacedOrder
     {
-        $variants = ProductVariant::with('product')
-            ->whereIn('id', array_column($data['items'], 'product_variant_id'))
+        $products = Product::whereIn('id', array_column($data['items'], 'product_id'))
             ->get()
             ->keyBy('id');
 
-        $lines = $this->buildLines($data['items'], $variants);
+        $lines = $this->buildLines($data['items'], $products);
 
         $total = array_sum(array_map(
             fn (array $line) => $line['price_at_purchase'] * $line['quantity'],
@@ -78,43 +77,37 @@ class OrderService
     }
 
     /**
-     * Validira zalihu i gradi retke za order_items.
-     * Zaliha se ne dekrementira — admin je održava ručno.
+     * Gradi retke za order_items. Cijena se snapshota u trenutku kupnje, a uz
+     * nju i veličina — proizvod je kasnije smije prestati nuditi, a narudžba
+     * mora ostati čitljiva.
      *
-     * @param  array<int, array{product_variant_id: int, quantity: int, product_player_id?: int|null, custom_player_name?: string|null, custom_player_number?: string|null}>  $items
-     * @param  Collection<int, ProductVariant>  $variants
+     * Zaliha se ne prati: sve navedene veličine su uvijek dostupne, a
+     * nedostupna se miče iz `products.sizes`.
+     *
+     * @param  array<int, array{product_id: int, size: string, quantity: int, custom_player_name?: string|null, custom_player_number?: string|null}>  $items
+     * @param  Collection<int, Product>  $products
      * @return array<int, array<string, mixed>>
      */
-    protected function buildLines(array $items, $variants): array
+    protected function buildLines(array $items, Collection $products): array
     {
         $errors = [];
         $lines = [];
 
         foreach ($items as $index => $item) {
-            $variant = $variants->get($item['product_variant_id']);
+            $product = $products->get($item['product_id']);
 
-            if (! $variant) {
-                $errors["items.{$index}.product_variant_id"] = ['Odabrana varijanta ne postoji.'];
-
-                continue;
-            }
-
-            if ($variant->stock_quantity < $item['quantity']) {
-                $errors["items.{$index}.quantity"] = [sprintf(
-                    'Nema dovoljno zalihe za veličinu %s (dostupno: %d).',
-                    $variant->size,
-                    $variant->stock_quantity
-                )];
+            if (! $product) {
+                $errors["items.{$index}.product_id"] = ['Odabrani proizvod ne postoji.'];
 
                 continue;
             }
 
             $lines[] = [
-                'product_variant_id' => $variant->id,
-                'price_at_purchase' => $variant->product->price,
+                'product_id' => $product->id,
+                // StoreOrderRequest je već potvrdio da proizvod nudi ovu veličinu.
+                'size' => $item['size'],
+                'price_at_purchase' => $product->price,
                 'quantity' => $item['quantity'],
-                // Personalizaciju je StoreOrderRequest već uskladio s products.personalization.
-                'product_player_id' => $item['product_player_id'] ?? null,
                 'custom_player_name' => $item['custom_player_name'] ?? null,
                 'custom_player_number' => $item['custom_player_number'] ?? null,
             ];

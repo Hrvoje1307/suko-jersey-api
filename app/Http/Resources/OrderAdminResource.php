@@ -27,20 +27,17 @@ class OrderAdminResource extends JsonResource
             'payment_status' => $this->payment_status->value,
             'total_price' => (float) $this->total_price,
             'items' => $this->items->map(fn ($item) => [
-                // order_items više ne drži snapshot — naziv i veličina se čitaju
-                // kroz varijantu (FK je NOT NULL, pa varijanta uvijek postoji).
-                'product_name' => $item->variant->product->name,
-                'size' => $item->variant->size,
+                // Id je jedino pouzdano razlikovanje: "Dinamo Home 25/26" postoji
+                // i kao dječji i kao dres za odrasle, pod istim nazivom.
+                'product_id' => $item->product_id,
+                // Naziv se čita kroz proizvod (FK je NOT NULL), a veličina je
+                // snapshot na stavci — proizvod je kasnije smije prestati nuditi.
+                'product_name' => $item->product->name,
+                'size' => $item->size,
                 'quantity' => $item->quantity,
-                // Ime i broj za dobavljača, bez obzira dolaze li s gotove liste
-                // ili iz slobodnog upisa kupca.
-                'player_name' => $item->productPlayer?->player_name ?? $item->custom_player_name,
-                'player_number' => $item->productPlayer?->player_number ?? $item->custom_player_number,
-                'player_source' => match (true) {
-                    $item->productPlayer !== null => 'preset',
-                    filled($item->custom_player_name) => 'custom',
-                    default => null,
-                },
+                // Ime i broj za tisak, onako kako ih je kupac upisao.
+                'player_name' => $item->custom_player_name,
+                'player_number' => $item->custom_player_number,
             ])->all(),
             'created_at' => $this->created_at->toIso8601String(),
         ];

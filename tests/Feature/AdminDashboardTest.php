@@ -6,7 +6,6 @@ use App\Models\AdminUser;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
-use App\Models\ProductVariant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -41,12 +40,12 @@ class AdminDashboardTest extends TestCase
             'created_at' => now()->startOfMonth()->subDays(3),
         ]);
 
-        $a = ProductVariant::factory()->for(Product::factory()->create(['name' => 'Dres A']))->create();
-        $b = ProductVariant::factory()->for(Product::factory()->create(['name' => 'Dres B']))->create();
+        $a = Product::factory()->create(['name' => 'Dres A']);
+        $b = Product::factory()->create(['name' => 'Dres B']);
 
-        OrderItem::factory()->for($thisMonth)->create(['product_variant_id' => $a->id, 'quantity' => 3]);
-        OrderItem::factory()->for($lastMonth)->create(['product_variant_id' => $a->id, 'quantity' => 4]);
-        OrderItem::factory()->for($thisMonth)->create(['product_variant_id' => $b->id, 'quantity' => 2]);
+        OrderItem::factory()->for($thisMonth)->create(['product_id' => $a->id, 'quantity' => 3]);
+        OrderItem::factory()->for($lastMonth)->create(['product_id' => $a->id, 'quantity' => 4]);
+        OrderItem::factory()->for($thisMonth)->create(['product_id' => $b->id, 'quantity' => 2]);
 
         $response = $this->actingAsAdmin()->getJson('/api/admin/dashboard');
 

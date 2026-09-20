@@ -15,21 +15,15 @@ class ProductController extends Controller
     public function index(ProductIndexRequest $request): ProductCollection
     {
         $products = Product::query()
-            // `variants` se učitava nefiltrirano i kad je zadan `size` — kartica
-            // mora ponuditi sve veličine proizvoda, ne samo filtriranu. Eager
-            // load je i jedino što drži listu na konstantnom broju upita.
-            ->with(['images', 'variants'])
             ->when($request->input('category'), fn ($q, $v) => $q->where('category', $v))
             // Djelomično i case-insensitive (`ilike` na Postgresu) — frontend
             // šalje slobodan tekst, pa `Real` mora naći `Real Madrid`.
             ->when($request->input('club'), fn ($q, $v) => $q->whereLike('club_or_team', "%{$v}%", caseSensitive: false))
-            ->when($request->input('kit_type'), fn ($q, $v) => $q->where('kit_type', $v))
-            ->when($request->input('audience'), fn ($q, $v) => $q->where('audience', $v))
+            ->when($request->input('type'), fn ($q, $v) => $q->where('type', $v))
             ->when($request->input('season'), fn ($q, $v) => $q->where('season', $v))
-            ->when($request->input('personalization'), fn ($q, $v) => $q->where('personalization', $v))
-            // Filtrira po postojanju varijante, ne po zalihi — rasprodana
-            // veličina se i dalje smije naći u katalogu.
-            ->when($request->input('size'), fn ($q, $v) => $q->whereHas('variants', fn ($vq) => $vq->where('size', $v)))
+            // Veličine su JSON niz; `whereJsonContains` radi i na Postgresu
+            // (jsonb) i na sqliteu, pa filter ne ovisi o drajveru.
+            ->when($request->input('size'), fn ($q, $v) => $q->whereJsonContains('sizes', $v))
             // Bez eksplicitnog filtera javno se vraćaju samo aktivni proizvodi.
             ->where('status', $request->input('status', ProductStatus::Active->value))
             ->when(
@@ -45,8 +39,8 @@ class ProductController extends Controller
     }
 
     /**
-     * Distinct vrijednosti za filtere koje nemaju enum — klub i sezona.
-     * Bez ovoga ih frontend mora hardkodirati i raziđu se s bazom.
+     * Distinct vrijednosti za filtere koje nemaju enum — klub, sezona i
+     * veličina. Bez ovoga ih frontend mora hardkodirati i raziđu se s bazom.
      */
     public function filters(): JsonResponse
     {
@@ -68,6 +62,15 @@ class ProductController extends Controller
                 ->orderByDesc('season')
                 ->pluck('season')
                 ->all(),
+            // Veličine su u JSON nizu, pa se distinct radi u PHP-u — katalog
+            // je malen i ovo je jedan upit umjesto drajver-specifičnog SQL-a.
+            'sizes' => $active()
+                ->pluck('sizes')
+                ->flatten()
+                ->unique()
+                ->sortBy(Product::sizeSortKey(...))
+                ->values()
+                ->all(),
         ]);
     }
 
@@ -75,6 +78,6 @@ class ProductController extends Controller
     {
         abort_if($product->status === ProductStatus::Draft, 404);
 
-        return new ProductDetailResource($product->load(['images', 'variants', 'players']));
+        return new ProductDetailResource($product);
     }
 }

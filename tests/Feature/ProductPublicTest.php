@@ -3,10 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Product;
-use App\Models\ProductImage;
-use App\Models\ProductVariant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class ProductPublicTest extends TestCase
@@ -50,20 +47,18 @@ class ProductPublicTest extends TestCase
         $match = Product::factory()->create([
             'category' => 'football',
             'club_or_team' => 'Dinamo Zagreb',
-            'kit_type' => 'home',
-            'audience' => 'men',
+            'type' => 'adult',
             'season' => '2025/26',
         ]);
 
         Product::factory()->create([
-            'category' => 'f1',
+            'category' => 'formula',
             'club_or_team' => 'Ferrari',
-            'kit_type' => 'away',
-            'audience' => 'kids',
+            'type' => 'kids',
             'season' => '2024/25',
         ]);
 
-        $query = 'category=football&club=Dinamo&kit_type=home&audience=men&season=2025/26';
+        $query = 'category=football&club=Dinamo&type=adult&season=2025/26';
 
         $this->getJson('/api/products?'.$query)
             ->assertOk()
@@ -73,15 +68,13 @@ class ProductPublicTest extends TestCase
 
     public function test_index_meta_matches_spec_shape(): void
     {
-        Product::factory()->count(3)->create()->each(
-            fn (Product $product) => ProductVariant::factory()->for($product)->create(['size' => 'M'])
-        );
+        Product::factory()->count(3)->sizes(['M'])->create();
 
         $response = $this->getJson('/api/products');
 
         $response->assertOk()
             ->assertJsonStructure([
-                'data' => [['id', 'name', 'club_or_team', 'category', 'kit_type', 'audience', 'season', 'price', 'primary_image_url', 'status', 'personalization', 'variants' => [['id', 'size', 'stock_quantity']], 'created_at']],
+                'data' => [['id', 'name', 'club_or_team', 'category', 'type', 'season', 'price', 'primary_image_url', 'status', 'sizes', 'created_at']],
                 'meta' => ['current_page', 'total_pages', 'total_items'],
             ])
             ->assertJsonPath('meta.current_page', 1)
@@ -102,31 +95,30 @@ class ProductPublicTest extends TestCase
 
     public function test_primary_image_url_falls_back_to_first_image(): void
     {
-        $product = Product::factory()->create();
-        ProductImage::factory()->for($product)->create(['url' => Storage::disk('public')->url('products/a.jpg'), 'sort_order' => 2]);
-        ProductImage::factory()->for($product)->create(['url' => Storage::disk('public')->url('products/b.jpg'), 'sort_order' => 1]);
+        // Prva u nizu je primarna — redoslijed je jedini izvor istine.
+        Product::factory()->images([
+            'https://cdn.example.com/b.jpg',
+            'https://cdn.example.com/a.jpg',
+        ])->create();
 
         $url = $this->getJson('/api/products')->json('data.0.primary_image_url');
 
-        $this->assertStringContainsString('products/b.jpg', $url);
+        $this->assertSame('https://cdn.example.com/b.jpg', $url);
     }
 
-    public function test_show_returns_detail_with_images_and_variants(): void
+    public function test_show_returns_detail_with_images_and_sizes(): void
     {
-        $product = Product::factory()->create(['model_3d_url' => null]);
-        ProductImage::factory()->for($product)->primary()->create();
-        ProductVariant::factory()->for($product)->create(['size' => 'L', 'stock_quantity' => 4]);
+        $product = Product::factory()
+            ->sizes(['L'])
+            ->images(['https://cdn.example.com/front.jpg'])
+            ->create(['model_3d_url' => null]);
 
         $this->getJson("/api/products/{$product->id}")
             ->assertOk()
-            ->assertJsonStructure([
-                'id', 'name', 'description', 'model_3d_url',
-                'images' => [['url', 'sort_order', 'is_primary']],
-                'variants' => [['id', 'size', 'stock_quantity']],
-            ])
+            ->assertJsonStructure(['id', 'name', 'description', 'model_3d_url', 'images', 'sizes'])
             ->assertJsonPath('model_3d_url', null)
-            ->assertJsonPath('variants.0.size', 'L')
-            ->assertJsonPath('variants.0.stock_quantity', 4);
+            ->assertJsonPath('images', ['https://cdn.example.com/front.jpg'])
+            ->assertJsonPath('sizes', ['L']);
     }
 
     public function test_show_returns_404_for_draft_product(): void
@@ -143,12 +135,8 @@ class ProductPublicTest extends TestCase
 
     public function test_index_filters_by_size(): void
     {
-        $withM = Product::factory()->create();
-        ProductVariant::factory()->for($withM)->create(['size' => 'M']);
-        ProductVariant::factory()->for($withM)->create(['size' => 'L']);
-
-        $withoutM = Product::factory()->create();
-        ProductVariant::factory()->for($withoutM)->create(['size' => 'XL']);
+        $withM = Product::factory()->sizes(['M', 'L'])->create();
+        Product::factory()->sizes(['XL'])->create();
 
         $this->getJson('/api/products?size=M')
             ->assertOk()
@@ -160,21 +148,9 @@ class ProductPublicTest extends TestCase
         $this->getJson('/api/products')->assertJsonPath('meta.total_items', 2);
     }
 
-    public function test_size_filter_matches_by_existence_not_stock(): void
-    {
-        $product = Product::factory()->create();
-        ProductVariant::factory()->for($product)->create(['size' => 'M', 'stock_quantity' => 0]);
-
-        $this->getJson('/api/products?size=M')
-            ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.id', $product->id);
-    }
-
     public function test_unknown_size_returns_empty_list_not_validation_error(): void
     {
-        $product = Product::factory()->create();
-        ProductVariant::factory()->for($product)->create(['size' => 'M']);
+        Product::factory()->sizes(['M'])->create();
 
         $this->getJson('/api/products?size=NEPOSTOJECA')
             ->assertOk()
@@ -204,79 +180,56 @@ class ProductPublicTest extends TestCase
         }
     }
 
-    public function test_summary_variants_carry_id_size_and_stock(): void
+    public function test_summary_exposes_type_and_sizes(): void
     {
-        $product = Product::factory()->create();
-        $variant = ProductVariant::factory()->for($product)->create(['size' => 'M', 'stock_quantity' => 0]);
+        Product::factory()->sizes(['M'])->create(['type' => 'kids']);
 
         $this->getJson('/api/products')
             ->assertOk()
-            ->assertJsonPath('data.0.variants.0.id', $variant->id)
-            ->assertJsonPath('data.0.variants.0.size', 'M')
-            // Rasprodana veličina ostaje u listi — frontend je prikazuje zaključanu.
-            ->assertJsonPath('data.0.variants.0.stock_quantity', 0);
+            ->assertJsonPath('data.0.type', 'kids')
+            ->assertJsonPath('data.0.sizes', ['M']);
     }
 
-    public function test_summary_exposes_personalization(): void
+    public function test_sizes_are_canonically_sorted(): void
     {
-        Product::factory()->create(['personalization' => 'preset_only']);
+        Product::factory()->sizes(['XL', 'S', 'M'])->create();
 
-        $this->getJson('/api/products')
-            ->assertOk()
-            ->assertJsonPath('data.0.personalization', 'preset_only');
-    }
-
-    public function test_variants_are_canonically_sorted(): void
-    {
-        $product = Product::factory()->create();
-        foreach (['XL', 'S', 'M'] as $size) {
-            ProductVariant::factory()->for($product)->create(['size' => $size]);
-        }
-
-        $sizes = $this->getJson('/api/products')->json('data.0.variants.*.size');
+        $sizes = $this->getJson('/api/products')->json('data.0.sizes');
 
         $this->assertSame(['S', 'M', 'XL'], $sizes);
     }
 
-    public function test_variants_sort_numeric_kids_sizes_naturally(): void
+    public function test_sizes_sort_numeric_kids_sizes_naturally(): void
     {
-        $product = Product::factory()->create();
-        foreach (['152', '128', '140'] as $size) {
-            ProductVariant::factory()->for($product)->create(['size' => $size]);
-        }
+        Product::factory()->sizes(['152', '128', '140'])->create();
 
-        $sizes = $this->getJson('/api/products')->json('data.0.variants.*.size');
+        $sizes = $this->getJson('/api/products')->json('data.0.sizes');
 
         $this->assertSame(['128', '140', '152'], $sizes);
     }
 
-    public function test_size_filter_does_not_truncate_variants(): void
+    public function test_size_filter_does_not_truncate_the_size_list(): void
     {
-        $product = Product::factory()->create();
-        foreach (['S', 'M', 'L'] as $size) {
-            ProductVariant::factory()->for($product)->create(['size' => $size]);
-        }
+        // Kartica mora ponuditi sve veličine proizvoda, ne samo filtriranu.
+        Product::factory()->sizes(['S', 'M', 'L'])->create();
 
-        $sizes = $this->getJson('/api/products?size=M')->json('data.0.variants.*.size');
+        $sizes = $this->getJson('/api/products?size=M')->json('data.0.sizes');
 
         $this->assertSame(['S', 'M', 'L'], $sizes);
     }
 
     public function test_index_does_not_run_a_query_per_product(): void
     {
-        Product::factory()->count(5)->create()->each(function (Product $product) {
-            foreach (['M', 'L'] as $size) {
-                ProductVariant::factory()->for($product)->create(['size' => $size]);
-            }
-        });
+        Product::factory()->count(5)->sizes(['M', 'L'])->create();
 
         \DB::enableQueryLog();
         $this->getJson('/api/products')->assertOk();
         $queries = count(\DB::getQueryLog());
         \DB::disableQueryLog();
 
-        // count + products + images + variants — broj ne smije rasti s katalogom.
-        $this->assertLessThanOrEqual(5, $queries);
+        // Slike i veličine su stupci na proizvodu, pa nema eager loada uopće:
+        // ostaju samo count i dohvat stranice.
+        $this->assertLessThanOrEqual(2, $queries);
     }
 
     public function test_index_can_sort_by_column_and_direction(): void

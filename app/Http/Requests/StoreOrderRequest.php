@@ -2,9 +2,8 @@
 
 namespace App\Http\Requests;
 
-use App\Enums\Personalization;
+use App\Enums\ProductStatus;
 use App\Models\Product;
-use App\Models\ProductVariant;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -22,10 +21,12 @@ class StoreOrderRequest extends FormRequest
             'customer.phone' => ['nullable', 'string', 'max:50'],
 
             'items' => ['required', 'array', 'min:1'],
-            'items.*.product_variant_id' => ['required', 'integer', 'exists:product_variants,id'],
+            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            // Veličina mora biti jedna od onih koje proizvod nudi — vidi after().
+            'items.*.size' => ['required', 'string', 'max:10'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
-            // Personalizacija: dopušteno ovisi o products.personalization — vidi after().
-            'items.*.product_player_id' => ['nullable', 'integer', 'exists:product_players,id'],
+            // Tisak je uvijek slobodan upis; gotove liste igrača frontend vuče
+            // s vanjskog API-ja, pa ih backend ne poznaje ni ne provjerava.
             'items.*.custom_player_name' => ['nullable', 'string', 'max:255'],
             'items.*.custom_player_number' => ['nullable', 'string', 'max:10'],
 
@@ -39,8 +40,8 @@ class StoreOrderRequest extends FormRequest
     }
 
     /**
-     * Pravila personalizacije ovise o proizvodu iza varijante, pa se provjeravaju
-     * tek nakon osnovne validacije — jednim upitom za sve stavke.
+     * Veličina i dostupnost ovise o proizvodu, pa se provjeravaju tek nakon
+     * osnovne validacije — jednim upitom za sve stavke.
      *
      * @return array<int, callable>
      */
@@ -54,92 +55,37 @@ class StoreOrderRequest extends FormRequest
                     return;
                 }
 
-                $variants = ProductVariant::with('product.players')
-                    ->whereIn('id', array_filter(array_column($items, 'product_variant_id')))
+                $products = Product::whereIn('id', array_filter(array_column($items, 'product_id')))
                     ->get()
                     ->keyBy('id');
 
                 foreach ($items as $index => $item) {
-                    $variant = $variants->get($item['product_variant_id'] ?? null);
+                    $product = $products->get($item['product_id'] ?? null);
 
-                    // Nepostojeću varijantu je već prijavilo `exists` pravilo.
-                    if (! $variant || ! $variant->product) {
+                    // Nepostojeći proizvod je već prijavilo `exists` pravilo.
+                    if (! $product) {
                         continue;
                     }
 
-                    $this->validatePersonalization($validator, (int) $index, $variant->product, $item);
+                    // Draft nije javno vidljiv, pa se ne smije ni naručiti.
+                    if ($product->status === ProductStatus::Draft) {
+                        $validator->errors()->add(
+                            "items.{$index}.product_id",
+                            'Ovaj proizvod trenutno nije u prodaji.',
+                        );
+
+                        continue;
+                    }
+
+                    if (is_string($item['size'] ?? null) && ! $product->hasSize($item['size'])) {
+                        $validator->errors()->add(
+                            "items.{$index}.size",
+                            sprintf('Veličina %s nije dostupna za ovaj proizvod.', $item['size']),
+                        );
+                    }
                 }
             },
         ];
-    }
-
-    /**
-     * Pravila po vrijednosti products.personalization:
-     *  - none         -> ni odabir s liste ni slobodan upis
-     *  - preset_only  -> obavezan odabir s liste, bez slobodnog upisa
-     *  - custom_text  -> obavezan upis imena, bez odabira s liste
-     *  - both         -> smije jedno od dvoje (ili ništa), nikad oboje
-     *
-     * custom_player_number nije pokriven tim pravilima (ni DB CHECK-om), pa ga
-     * vežemo uz custom_player_name: dopušten je samo ondje gdje je dopušten i
-     * slobodan upis imena, i nikad uz odabir s gotove liste.
-     *
-     * @param  array<string, mixed>  $item
-     */
-    protected function validatePersonalization(
-        Validator $validator,
-        int $index,
-        Product $product,
-        array $item,
-    ): void {
-        $personalization = $product->personalization ?? Personalization::None;
-
-        $presetId = $item['product_player_id'] ?? null;
-        $hasPreset = filled($presetId);
-        $hasCustomName = filled($item['custom_player_name'] ?? null);
-        $hasCustomNumber = filled($item['custom_player_number'] ?? null);
-
-        $presetKey = "items.{$index}.product_player_id";
-        $nameKey = "items.{$index}.custom_player_name";
-        $numberKey = "items.{$index}.custom_player_number";
-
-        $notAllowed = $personalization === Personalization::None
-            ? 'Ovaj proizvod ne dopušta personalizaciju.'
-            : 'Ovaj proizvod ne dopušta taj oblik personalizacije.';
-
-        if ($hasPreset && ! $personalization->allowsPreset()) {
-            $validator->errors()->add($presetKey, $notAllowed);
-        }
-
-        if ($hasCustomName && ! $personalization->allowsCustomText()) {
-            $validator->errors()->add($nameKey, $notAllowed);
-        }
-
-        // Slobodan broj ide isključivo uz slobodno ime — gotovi igrač s liste
-        // nosi vlastiti broj, pa bi uz njega poslan broj bio proturječan.
-        if ($hasCustomNumber && ! $personalization->allowsCustomText()) {
-            $validator->errors()->add($numberKey, $notAllowed);
-        } elseif ($hasCustomNumber && $hasPreset) {
-            $validator->errors()->add($numberKey, 'Igrač s liste već ima svoj broj, pa se broj ne upisuje zasebno.');
-        }
-
-        if ($personalization === Personalization::PresetOnly && ! $hasPreset) {
-            $validator->errors()->add($presetKey, 'Za ovaj proizvod je obavezan odabir igrača s liste.');
-        }
-
-        if ($personalization === Personalization::CustomText && ! $hasCustomName) {
-            $validator->errors()->add($nameKey, 'Za ovaj proizvod je obavezan upis imena igrača.');
-        }
-
-        if ($personalization === Personalization::Both && $hasPreset && $hasCustomName) {
-            $validator->errors()->add($presetKey, 'Moguć je ili odabir s liste ili slobodan upis imena, ne oboje.');
-        }
-
-        // `exists` pravilo hvata nepostojećeg igrača, ali ne i igrača s tuđeg proizvoda.
-        if ($hasPreset && $personalization->allowsPreset()
-            && ! $product->players->contains('id', (int) $presetId)) {
-            $validator->errors()->add($presetKey, 'Odabrani igrač ne pripada ovom proizvodu.');
-        }
     }
 
     protected function prepareForValidation(): void

@@ -6,11 +6,7 @@ use App\Models\AdminUser;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
-use App\Models\ProductImage;
-use App\Models\ProductVariant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class AdminProductTest extends TestCase
@@ -31,11 +27,11 @@ class AdminProductTest extends TestCase
             'name' => 'Dinamo Home 25/26',
             'club_or_team' => 'Dinamo Zagreb',
             'category' => 'football',
-            'kit_type' => 'home',
-            'audience' => 'men',
+            'type' => 'adult',
             'season' => '2025/26',
             'price' => 89.99,
             'description' => 'Domaći dres.',
+            'sizes' => ['S', 'M', 'L'],
         ], $overrides);
     }
 
@@ -53,7 +49,7 @@ class AdminProductTest extends TestCase
 
         $response->assertOk()->assertJsonCount(2);
         $this->assertArrayNotHasKey('data', $response->json());
-        $response->assertJsonStructure([['id', 'name', 'description', 'model_3d_url', 'images', 'variants']]);
+        $response->assertJsonStructure([['id', 'name', 'description', 'model_3d_url', 'images', 'sizes']]);
     }
 
     public function test_store_creates_product_as_draft_by_default(): void
@@ -65,7 +61,7 @@ class AdminProductTest extends TestCase
             ->assertJsonPath('status', 'draft')
             ->assertJsonPath('price', 89.99)
             ->assertJsonPath('images', [])
-            ->assertJsonPath('variants', []);
+            ->assertJsonPath('sizes', ['S', 'M', 'L']);
 
         $this->assertDatabaseCount('products', 1);
     }
@@ -83,7 +79,7 @@ class AdminProductTest extends TestCase
         $this->actingAsAdmin()
             ->postJson('/api/admin/products', ['category' => 'rugby'])
             ->assertStatus(422)
-            ->assertJsonValidationErrors(['name', 'club_or_team', 'category', 'kit_type', 'audience', 'price']);
+            ->assertJsonValidationErrors(['name', 'club_or_team', 'category', 'type', 'price', 'sizes']);
     }
 
     public function test_update_replaces_product(): void
@@ -119,122 +115,90 @@ class AdminProductTest extends TestCase
             ->assertJsonPath('status', 'active');
     }
 
-    public function test_variants_update_refuses_to_remove_an_ordered_size(): void
+    public function test_sizes_are_replaced_wholesale_on_update(): void
     {
-        $product = Product::factory()->create();
-        $small = ProductVariant::factory()->for($product)->create(['size' => 'S', 'stock_quantity' => 3]);
-        ProductVariant::factory()->for($product)->create(['size' => 'M', 'stock_quantity' => 3]);
+        $product = Product::factory()->sizes(['S', 'M'])->create();
 
-        $order = Order::factory()->create();
-        OrderItem::factory()->for($order)->create(['product_variant_id' => $small->id]);
-
-        // order_items.product_variant_id je NOT NULL FK bez ON DELETE, pa se
-        // naručena veličina ne može ukloniti bez gubitka povijesti narudžbe.
         $this->actingAsAdmin()
-            ->putJson("/api/admin/products/{$product->id}/variants", [
-                'variants' => [['size' => 'M', 'stock_quantity' => 3]],
-            ])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('variants');
+            ->putJson("/api/admin/products/{$product->id}", $this->productPayload([
+                'sizes' => ['M', 'L', 'XL'],
+            ]))
+            ->assertOk()
+            ->assertJsonPath('sizes', ['M', 'L', 'XL']);
 
-        $this->assertSame(2, $product->variants()->count());
-        $this->assertSame($small->id, $order->fresh()->items->first()->product_variant_id);
+        $this->assertSame(['M', 'L', 'XL'], $product->fresh()->sizes);
     }
 
-    public function test_destroy_returns_204_and_cascades_to_variants_and_images(): void
+    public function test_sizes_are_returned_in_canonical_order(): void
     {
         $product = Product::factory()->create();
-        ProductVariant::factory()->for($product)->create(['size' => 'XL']);
-        ProductImage::factory()->for($product)->create();
+
+        $this->actingAsAdmin()
+            ->putJson("/api/admin/products/{$product->id}", $this->productPayload([
+                'sizes' => ['XL', 'S', 'L', 'M'],
+            ]))
+            ->assertOk()
+            ->assertJsonPath('sizes', ['S', 'M', 'L', 'XL']);
+    }
+
+    public function test_at_least_one_size_is_required(): void
+    {
+        $this->actingAsAdmin()
+            ->postJson('/api/admin/products', $this->productPayload(['sizes' => []]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('sizes');
+    }
+
+    public function test_duplicate_sizes_are_rejected(): void
+    {
+        $this->actingAsAdmin()
+            ->postJson('/api/admin/products', $this->productPayload(['sizes' => ['M', 'M']]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('sizes.0');
+    }
+
+    public function test_removing_an_ordered_size_is_allowed(): void
+    {
+        // Veličina je snapshot na stavci narudžbe, pa je skidanje s ponude
+        // više ne može osakatiti — za razliku od ranijeg FK-a na varijantu.
+        $product = Product::factory()->sizes(['S', 'M'])->create();
+
+        $order = Order::factory()->create();
+        OrderItem::factory()->for($order)->create(['product_id' => $product->id, 'size' => 'S']);
+
+        $this->actingAsAdmin()
+            ->putJson("/api/admin/products/{$product->id}", $this->productPayload(['sizes' => ['M']]))
+            ->assertOk()
+            ->assertJsonPath('sizes', ['M']);
+
+        $this->assertSame('S', $order->fresh()->items->first()->size);
+    }
+
+    public function test_destroy_returns_204(): void
+    {
+        $product = Product::factory()->create();
 
         $this->actingAsAdmin()
             ->deleteJson("/api/admin/products/{$product->id}")
             ->assertNoContent();
 
         $this->assertDatabaseCount('products', 0);
-        $this->assertDatabaseCount('product_variants', 0);
-        $this->assertDatabaseCount('product_images', 0);
     }
 
     public function test_destroy_is_refused_for_an_ordered_product(): void
     {
         $product = Product::factory()->create();
-        $variant = ProductVariant::factory()->for($product)->create(['size' => 'XL']);
 
         $order = Order::factory()->create();
-        OrderItem::factory()->for($order)->create(['product_variant_id' => $variant->id]);
+        OrderItem::factory()->for($order)->create(['product_id' => $product->id, 'size' => 'XL']);
 
-        // Bez snapshota u order_items brisanje bi odnijelo i povijest narudžbe.
+        // order_items.product_id je NOT NULL FK bez ON DELETE — brisanje bi
+        // odnijelo i povijest narudžbe.
         $this->actingAsAdmin()
             ->deleteJson("/api/admin/products/{$product->id}")
             ->assertStatus(409);
 
         $this->assertDatabaseCount('products', 1);
-        $this->assertSame($variant->id, $order->fresh()->items->first()->product_variant_id);
-    }
-
-    public function test_variants_update_replaces_missing_sizes(): void
-    {
-        $product = Product::factory()->create();
-        ProductVariant::factory()->for($product)->create(['size' => 'S', 'stock_quantity' => 1]);
-        ProductVariant::factory()->for($product)->create(['size' => 'M', 'stock_quantity' => 2]);
-
-        $this->actingAsAdmin()
-            ->putJson("/api/admin/products/{$product->id}/variants", [
-                'variants' => [
-                    ['size' => 'M', 'stock_quantity' => 10],
-                    ['size' => 'L', 'stock_quantity' => 7],
-                ],
-            ])
-            ->assertOk()
-            ->assertJsonCount(2, 'variants');
-
-        $sizes = $product->fresh()->variants->pluck('stock_quantity', 'size')->all();
-        $this->assertSame(['M' => 10, 'L' => 7], $sizes);
-    }
-
-    public function test_variants_update_validates_payload(): void
-    {
-        $product = Product::factory()->create();
-
-        $this->actingAsAdmin()
-            ->putJson("/api/admin/products/{$product->id}/variants", [
-                'variants' => [['size' => 'M', 'stock_quantity' => -1]],
-            ])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('variants.0.stock_quantity');
-    }
-
-    public function test_image_upload_stores_files_and_marks_first_as_primary(): void
-    {
-        Storage::fake('public');
-        $product = Product::factory()->create();
-
-        $this->actingAsAdmin()
-            ->post("/api/admin/products/{$product->id}/images", [
-                'images' => [
-                    UploadedFile::fake()->image('front.jpg'),
-                    UploadedFile::fake()->image('back.jpg'),
-                ],
-            ], ['Accept' => 'application/json'])
-            ->assertCreated()
-            ->assertJsonCount(2, 'images')
-            ->assertJsonPath('images.0.is_primary', true)
-            ->assertJsonPath('images.1.is_primary', false);
-
-        $this->assertCount(2, Storage::disk('public')->files("products/{$product->id}"));
-    }
-
-    public function test_image_upload_rejects_non_images(): void
-    {
-        Storage::fake('public');
-        $product = Product::factory()->create();
-
-        $this->actingAsAdmin()
-            ->post("/api/admin/products/{$product->id}/images", [
-                'images' => [UploadedFile::fake()->create('malware.pdf', 10, 'application/pdf')],
-            ], ['Accept' => 'application/json'])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('images.0');
+        $this->assertSame($product->id, $order->fresh()->items->first()->product_id);
     }
 }

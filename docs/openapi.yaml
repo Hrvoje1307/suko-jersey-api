@@ -4,13 +4,16 @@ info:
   description: |
     API za webshop fan sportskih dresova (nogomet, F1, košarka).
 
-    Svaki dres ima **jedan** 3D model (`model_3d_url`) i **više** slika (`images`).
-    Slike dolaze iz dva izvora koja se u odgovoru vraćaju zajedno:
-    upload fajla (`POST /admin/products/{id}/images`) i vanjski URL-ovi
-    (`image_urls` u tijelu proizvoda).
+    Proizvod je jedna tablica: veličine (`sizes`) i slike (`images`) su nizovi
+    na samom dresu, uz **jedan** 3D model (`model_3d_url`). Slike se hostaju
+    vanjski i šalju kao URL-ovi; prva u nizu je primarna. Zalihe nema — sve
+    navedene veličine su uvijek dostupne.
+
+    Ime i broj za tisak upisuje kupac pri narudžbi. Liste igrača backend ne
+    poznaje — frontend ih vuče s vanjskog API-ja.
 
     Admin endpointi traže Sanctum bearer token iz `POST /admin/login`.
-  version: 1.4.0
+  version: 2.0.0
 
 servers:
   - url: https://api.tvojdomena.com/api
@@ -40,7 +43,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [football, f1, basketball]
+            enum: [football, basketball, formula]
         - name: club
           in: query
           description: >
@@ -49,26 +52,15 @@ paths:
             Namijenjeno slobodnom tekstu iz input polja.
           schema:
             type: string
-        - name: kit_type
+        - name: type
           in: query
           schema:
             type: string
-            enum: [home, away, third, fourth]
-        - name: audience
-          in: query
-          schema:
-            type: string
-            enum: [kids, men, women, unisex]
+            enum: [kids, adult]
         - name: season
           in: query
           schema:
             type: string
-        - name: personalization
-          in: query
-          description: Filtrira proizvode po tipu personalizacije imena/broja
-          schema:
-            type: string
-            enum: [none, preset_only, custom_text, both]
         - name: status
           in: query
           description: Default je "active" — draft/sold_out se ne vraćaju javno osim ako nije eksplicitno traženo
@@ -78,11 +70,11 @@ paths:
         - name: size
           in: query
           description: >
-            Vraća proizvode koji **imaju** varijantu te veličine, bez obzira na
-            zalihu — rasprodane veličine ostaju vidljive (proizvod tada ima
-            status `sold_out`). Nije enum jer uz S–XXL postoje i dječje veličine
-            (128, 140, 152, 164); nepoznata veličina daje 200 s praznim `data`,
-            ne 422. Usporedba je točna (case-sensitive).
+            Vraća proizvode koji nude tu veličinu. Zalihe nema — sve navedene
+            veličine su uvijek dostupne, a nedostupna se miče iz `sizes`. Nije
+            enum jer uz S–XXL postoje i dječje veličine (128, 140, 152, 164);
+            nepoznata veličina daje 200 s praznim `data`, ne 422. Usporedba je
+            točna (case-sensitive).
           schema:
             type: string
           example: M
@@ -133,13 +125,14 @@ paths:
   /products/filters:
     get:
       tags: [Products (public)]
-      summary: Vrijednosti za filtere koji nisu enum (klub, sezona)
+      summary: Vrijednosti za filtere koji nisu enum (klub, sezona, veličina)
       description: >
-        Distinct klubovi i sezone iz **aktivnih** proizvoda, bez praznih
-        vrijednosti. Klubovi su sortirani abecedno uzlazno, sezone silazno po
-        vrijednosti — leksikografski, jer je `season` slobodan string i miješa
-        formate (`25/26`, `2025`). Postoji da frontend ne mora hardkodirati
-        liste koje se s vremenom raziđu s bazom.
+        Distinct klubovi, sezone i veličine iz **aktivnih** proizvoda, bez
+        praznih vrijednosti. Klubovi su sortirani abecedno uzlazno, sezone
+        silazno po vrijednosti — leksikografski, jer je `season` slobodan string
+        i miješa formate (`25/26`, `2025`) — a veličine kanonski (S, M, L, XL,
+        pa dječje brojčane). Postoji da frontend ne mora hardkodirati liste koje
+        se s vremenom raziđu s bazom.
       responses:
         '200':
           description: Popisi vrijednosti
@@ -151,7 +144,7 @@ paths:
   /products/{id}:
     get:
       tags: [Products (public)]
-      summary: Detalj proizvoda (sa slikama i varijantama)
+      summary: Detalj proizvoda (sa slikama i veličinama)
       parameters:
         - name: id
           in: path
@@ -404,7 +397,7 @@ paths:
         '200':
           description: |
             Proizvod ažuriran. PUT je full replace — izostavljena opcionalna polja
-            (`season`, `description`, `model_3d_url`, `image_urls`) se brišu.
+            (`season`, `description`, `model_3d_url`, `images`) se brišu.
             Iznimka je `status`: izostavljanjem zadržava trenutnu vrijednost.
           content:
             application/json:
@@ -443,144 +436,6 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           description: Proizvod nije pronađen
-
-  /admin/products/{id}/images:
-    post:
-      tags: [Admin - Products]
-      summary: Upload slika za proizvod (multipart)
-      security: [{ sanctum: [] }]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      requestBody:
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              properties:
-                images:
-                  type: array
-                  items:
-                    type: string
-                    format: binary
-      responses:
-        '201':
-          description: Slike uploadane
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  images:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/ProductImage'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          description: Proizvod nije pronađen
-        '422':
-          $ref: '#/components/responses/ValidationError'
-
-  /admin/products/{id}/variants:
-    put:
-      tags: [Admin - Products]
-      summary: Postavljanje/ažuriranje veličina i zaliha
-      security: [{ sanctum: [] }]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                variants:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      size:
-                        type: string
-                      stock_quantity:
-                        type: integer
-      responses:
-        '200':
-          description: |
-            Varijante ažurirane. Replace semantika — veličine koje nisu poslane se brišu.
-            Iznimka je veličina koja se već nalazi u nekoj narudžbi: nju se ne može
-            ukloniti (422), jer order_items na nju pokazuje NOT NULL FK-om.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProductDetail'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          description: Proizvod nije pronađen
-        '422':
-          $ref: '#/components/responses/ValidationError'
-
-  /admin/products/{id}/players:
-    put:
-      tags: [Admin - Products]
-      summary: Postavljanje gotove liste igrača/vozača za personalizaciju (relevantno kad je personalization = 'preset_only' ili 'both')
-      security: [{ sanctum: [] }]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [players]
-              properties:
-                players:
-                  type: array
-                  items:
-                    type: object
-                    required: [player_name]
-                    properties:
-                      player_name:
-                        type: string
-                      player_number:
-                        type: string
-                        nullable: true
-      responses:
-        '200':
-          description: |
-            Lista igrača ažurirana. Replace semantika — lista se postavlja u cijelosti,
-            a redoslijed u tijelu zahtjeva određuje sort_order. Igrači koji ostaju na
-            listi (isto ime i broj) zadržavaju svoj id, pa postojeće narudžbe i dalje
-            pokazuju na njih. Uklanjanje igrača koji se već nalazi u narudžbi vraća 422.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProductDetail'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          description: Proizvod nije pronađen
-        '422':
-          $ref: '#/components/responses/ValidationError'
 
   # ============================================
   # ADMIN — ORDERS
@@ -721,13 +576,10 @@ components:
           type: string
         category:
           type: string
-          enum: [football, f1, basketball]
-        kit_type:
+          enum: [football, basketball, formula]
+        type:
           type: string
-          enum: [home, away, third, fourth]
-        audience:
-          type: string
-          enum: [kids, men, women, unisex]
+          enum: [kids, adult]
         season:
           type: string
         price:
@@ -740,23 +592,16 @@ components:
         status:
           type: string
           enum: [active, sold_out, draft]
-        personalization:
-          type: string
-          enum: [none, preset_only, custom_text, both]
-          description: >
-            'none' = nema personalizacije, 'preset_only' = samo iz gotove liste
-            (vidi available_players na detalju), 'custom_text' = slobodan upis
-            imena/broja, 'both' = kupac bira jedno od dvoje. U listi je zato da
-            kartica zna traži li proizvod personalizaciju prije dodavanja u košaricu.
-        variants:
+        sizes:
           type: array
           description: >
-            Sve veličine proizvoda, sortirane (slovne kanonski S→XXXL, brojčane
-            uzlazno). Rasprodane ostaju u listi sa `stock_quantity: 0` — frontend
-            ih prikazuje zaključane. `id` je `product_variant_id` koji traži
-            POST /orders, pa kartica može složiti liniju košarice bez dohvata detalja.
+            Veličine koje proizvod nudi, sortirane (slovne kanonski S→XXXL,
+            brojčane dječje uzlazno iza njih). Zalihe nema — sve navedeno je
+            uvijek dostupno, a nedostupna veličina se miče iz niza. Kartica time
+            može složiti liniju košarice bez dohvata detalja.
           items:
-            $ref: '#/components/schemas/ProductVariant'
+            type: string
+          example: [S, M, L, XL]
         created_at:
           type: string
           format: date-time
@@ -776,6 +621,11 @@ components:
           items:
             type: string
           example: ['25/26', '24/25', '2025']
+        sizes:
+          type: array
+          items:
+            type: string
+          example: [S, M, L, XL, '128', '140']
 
     ProductDetail:
       allOf:
@@ -784,59 +634,22 @@ components:
           properties:
             description:
               type: string
-            available_players:
-              type: array
-              description: Gotova lista igrača/vozača za ovaj proizvod (prazno kad personalization = 'none' ili 'custom_text')
-              items:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                  player_name:
-                    type: string
-                  player_number:
-                    type: string
-                    nullable: true
             model_3d_url:
               type: string
               nullable: true
               description: Jedan link na GLB/3D model za 360 prikaz (Blender pipeline) — null dok nije generiran
             images:
               type: array
-              description: Uploadane i vanjske (image_urls) slike zajedno, sortirane po sort_order
+              description: >
+                Vanjski URL-ovi slika. Redoslijed je izvor istine: prva slika je
+                primarna i vraća se kao `primary_image_url` u listi.
               items:
-                $ref: '#/components/schemas/ProductImage'
-
-    ProductVariant:
-      type: object
-      properties:
-        id:
-          type: integer
-          description: Ide u `product_variant_id` na POST /orders
-        size:
-          type: string
-          description: Slobodan string — uz S–XXL postoje i dječje veličine (128, 140, 152)
-          example: M
-        stock_quantity:
-          type: integer
-          example: 12
-
-    ProductImage:
-      type: object
-      properties:
-        url:
-          type: string
-          format: uri
-          description: Puni URL — uploadana slika s public diska ili vanjski URL iz image_urls
-        sort_order:
-          type: integer
-        is_primary:
-          type: boolean
-          description: Proizvod sa slikama uvijek ima točno jednu primarnu
+                type: string
+                format: uri
 
     CreateProductRequest:
       type: object
-      required: [name, club_or_team, category, kit_type, audience, price]
+      required: [name, club_or_team, category, type, price, sizes]
       properties:
         name:
           type: string
@@ -844,44 +657,45 @@ components:
           type: string
         category:
           type: string
-          enum: [football, f1, basketball]
-        kit_type:
+          enum: [football, basketball, formula]
+        type:
           type: string
-          enum: [home, away, third, fourth]
-        audience:
-          type: string
-          enum: [kids, men, women, unisex]
+          enum: [kids, adult]
         season:
           type: string
           maxLength: 50
-        personalization:
-          type: string
-          enum: [none, preset_only, custom_text, both]
-          default: none
-          description: Gotova lista igrača se postavlja zasebno preko PUT /admin/products/{id}/players
-        model_3d_url:
-          type: string
-          nullable: true
-          description: Jedan GLB/3D model po dresu (Blender pipeline) — null dok nije generiran
-        image_urls:
-          type: array
-          maxItems: 20
-          description: >-
-            Vanjski URL-ovi slika (npr. CDN). Postavlja punu listu vanjskih slika —
-            izostavljanjem ili praznim arrayem se brišu. Uploadane slike
-            (POST /admin/products/{id}/images) se ovime ne diraju; oboje se
-            zajedno vraćaju u ProductDetail.images.
-
-            URL-ovi koji pokazuju na storage same aplikacije se ignoriraju, pa je
-            sigurno cijeli ProductDetail.images vratiti natrag u ovo polje —
-            uploadane slike se time neće duplicirati.
-          items:
-            type: string
-            format: uri
         price:
           type: number
         description:
           type: string
+        sizes:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: >-
+            Veličine koje proizvod nudi. Bez zalihe — sve navedeno je uvijek
+            dostupno, pa se nedostupna veličina jednostavno makne iz niza.
+            Slobodan string jer uz S–XXL postoje i dječje brojčane (128, 140).
+            PUT je full replace: izostavljene veličine se brišu s ponude, ali
+            ostaju zapisane na već kreiranim narudžbama.
+          items:
+            type: string
+            maxLength: 10
+          example: [S, M, L, XL]
+        images:
+          type: array
+          maxItems: 20
+          description: >-
+            Vanjski URL-ovi slika (npr. CDN). Redoslijed je značajan — prva je
+            primarna. PUT je full replace: izostavljanjem ili praznim nizom se
+            brišu.
+          items:
+            type: string
+            format: uri
+        model_3d_url:
+          type: string
+          nullable: true
+          description: Jedan GLB/3D model po dresu (Blender pipeline) — null dok nije generiran
         status:
           type: string
           enum: [active, sold_out, draft]
@@ -905,32 +719,31 @@ components:
           type: array
           items:
             type: object
-            required: [product_variant_id, quantity]
+            required: [product_id, size, quantity]
             properties:
-              product_variant_id:
+              product_id:
                 type: integer
+              size:
+                type: string
+                description: >
+                  Mora biti jedna od veličina koje proizvod nudi (`sizes`),
+                  inače 422. Sprema se kao snapshot na stavku narudžbe, pa
+                  ostaje čitljiva i ako je proizvod kasnije prestane nuditi.
+                example: M
               quantity:
                 type: integer
-              product_player_id:
-                type: integer
-                nullable: true
-                description: >
-                  Odabir s gotove liste (available_players) — dopušten kad proizvod ima
-                  personalization 'preset_only' ili 'both'; obavezan kod 'preset_only'
+                description: Bez gornje granice — zalihe nema, sve je uvijek dostupno
               custom_player_name:
                 type: string
                 nullable: true
                 description: >
-                  Slobodan upis imena — dopušten kad proizvod ima personalization
-                  'custom_text' ili 'both'; obavezan kod 'custom_text'.
-                  Kod 'both' se ne smije slati zajedno s product_player_id
+                  Ime za tisak na dresu, slobodan upis. Liste igrača backend ne
+                  poznaje — frontend ih vuče s vanjskog API-ja i šalje ovdje
+                  kao običan tekst.
               custom_player_number:
                 type: string
                 nullable: true
-                description: >
-                  Slobodan upis broja — dopušten samo ondje gdje je dopušten i
-                  custom_player_name, i nikad zajedno s product_player_id
-                  (igrač s liste već nosi svoj broj)
+                description: Broj za tisak; smije se slati i bez imena
         shipping_address:
           type: object
           required: [line1, city, postal_code, country]
@@ -1035,24 +848,27 @@ components:
           items:
             type: object
             properties:
+              product_id:
+                type: integer
+                description: >
+                  Jedino pouzdano razlikovanje dresa — isti naziv (npr.
+                  "Dinamo Home 25/26") postoji i u dječjoj i u odrasloj verziji,
+                  pod različitim id-em.
               product_name:
                 type: string
               size:
                 type: string
+                description: Veličina koju je kupac naručio, snapshot u trenutku kupnje
               quantity:
                 type: integer
               player_name:
                 type: string
                 nullable: true
-                description: Ime za tisak — s gotove liste ili iz slobodnog upisa kupca; null kad nema personalizacije
+                description: Ime za tisak, onako kako ga je kupac upisao; null kad dres ide bez tiska
               player_number:
                 type: string
                 nullable: true
-              player_source:
-                type: string
-                nullable: true
-                enum: [preset, custom, null]
-                description: Odakle dolazi ime — 'preset' (product_players) ili 'custom' (slobodan upis)
+                description: Broj za tisak; može postojati i bez imena
         created_at:
           type: string
           format: date-time

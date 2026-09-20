@@ -9,8 +9,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'order_id', 'product_variant_id', 'quantity', 'price_at_purchase',
-    'product_player_id', 'custom_player_name', 'custom_player_number',
+    'order_id', 'product_id', 'size', 'quantity', 'price_at_purchase',
+    'custom_player_name', 'custom_player_number',
 ])]
 class OrderItem extends Model
 {
@@ -34,20 +34,23 @@ class OrderItem extends Model
         return $this->belongsTo(Order::class);
     }
 
-    /** @return BelongsTo<ProductVariant, $this> */
-    public function variant(): BelongsTo
+    /** @return BelongsTo<Product, $this> */
+    public function product(): BelongsTo
     {
-        return $this->belongsTo(ProductVariant::class, 'product_variant_id');
+        return $this->belongsTo(Product::class);
     }
 
     /**
-     * Igrač odabran s gotove liste; null kad je ime slobodno upisano ili
-     * kad proizvod nema personalizaciju.
-     *
-     * @return BelongsTo<ProductPlayer, $this>
+     * Ime i broj za tisak, onako kako ih je kupac upisao. Prazno kad dres ide
+     * bez tiska.
      */
-    public function productPlayer(): BelongsTo
+    public function printLabel(): ?string
     {
-        return $this->belongsTo(ProductPlayer::class);
+        $label = trim(implode(' ', array_filter([
+            $this->custom_player_name,
+            $this->custom_player_number,
+        ])));
+
+        return $label === '' ? null : $label;
     }
 }

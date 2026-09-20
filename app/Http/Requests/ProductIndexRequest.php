@@ -2,11 +2,9 @@
 
 namespace App\Http\Requests;
 
-use App\Enums\Audience;
-use App\Enums\KitType;
-use App\Enums\Personalization;
 use App\Enums\ProductCategory;
 use App\Enums\ProductStatus;
+use App\Enums\ProductType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -20,10 +18,8 @@ class ProductIndexRequest extends FormRequest
         return [
             'category' => ['sometimes', Rule::enum(ProductCategory::class)],
             'club' => ['sometimes', 'string', 'max:255'],
-            'kit_type' => ['sometimes', Rule::enum(KitType::class)],
-            'audience' => ['sometimes', Rule::enum(Audience::class)],
+            'type' => ['sometimes', Rule::enum(ProductType::class)],
             'season' => ['sometimes', 'string', 'max:50'],
-            'personalization' => ['sometimes', Rule::enum(Personalization::class)],
             // Namjerno bez fiksne liste: pored S–XXL postoje i dječje veličine
             // (128, 140). Nepoznata veličina zato daje 200 s praznim `data`,
             // a ne 422 — katalog ne smije puknuti na krivom filteru.
