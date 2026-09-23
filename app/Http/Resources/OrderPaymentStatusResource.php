@@ -9,7 +9,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
 /**
  * Javni status po samoj referenci. Namjerno minimalan — referenca je kratka i
  * pogodiva, pa se osobni podaci i tracking otkrivaju samo na /orders/lookup,
- * koji uz referencu traži i email.
+ * koji uz referencu traži i email. Fulfillment `status` nije osoban, a treba
+ * success stranici na koju Stripe vrati kupca.
  *
  * @mixin Order
  */
@@ -25,6 +26,7 @@ class OrderPaymentStatusResource extends JsonResource
         return [
             'order_reference' => $this->order_reference,
             'payment_status' => $this->payment_status->value,
+            'status' => $this->status->value,
             'status_label' => $this->isPaid()
                 ? $this->status->label()
                 : $this->payment_status->label(),

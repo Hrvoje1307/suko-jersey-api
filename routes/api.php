@@ -22,7 +22,9 @@ Route::get('products/{product}', [ProductController::class, 'show']);
 
 Route::post('orders', [OrderController::class, 'store']);
 // Mora ostati iznad orders/{reference}/status iz istog razloga kao products/filters.
-Route::get('orders/lookup', [OrderController::class, 'lookup']);
+// Vraća datum i tracking, pa i ovdje ide limit protiv pogađanja referenci.
+Route::get('orders/lookup', [OrderController::class, 'lookup'])
+    ->middleware('throttle:30,1');
 // Pogodivo samo referencom, pa ide uz eksplicitan limit — API grupa nema throttleApi().
 Route::get('orders/{reference}/status', [OrderController::class, 'paymentStatus'])
     ->middleware('throttle:30,1');

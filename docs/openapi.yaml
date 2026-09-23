@@ -216,9 +216,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/OrderStatusPublic'
         '404':
-          description: Narudžba nije pronađena
+          description: >
+            Narudžba nije pronađena. Isti odgovor za krivu referencu i krivi
+            email, da se ne može pogađati koje je od to dvoje točno.
         '422':
           $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Previše pokušaja — ograničeno na 30 zahtjeva u minuti
 
   /orders/{id}/status:
     get:
@@ -788,6 +792,10 @@ components:
           type: string
         payment_status:
           $ref: '#/components/schemas/PaymentStatus'
+        status:
+          type: string
+          description: Fulfillment status; frontend ga koristi za korake trackera
+          enum: [ordered, sent_to_supplier, arrived_hr, shipped, delivered]
         status_label:
           type: string
           description: >
@@ -797,7 +805,7 @@ components:
         estimated_delivery:
           type: string
           format: date
-          description: Fiksni offset od datuma narudžbe (config `shop.estimated_delivery_days`, default 21 dan)
+          description: Fiksni offset od datuma narudžbe (config `shop.estimated_delivery_days`, default 28 dana)
         tracking_number:
           type: string
           nullable: true
@@ -819,6 +827,9 @@ components:
           example: ORD-8F3K2
         payment_status:
           $ref: '#/components/schemas/PaymentStatus'
+        status:
+          type: string
+          enum: [ordered, sent_to_supplier, arrived_hr, shipped, delivered]
         status_label:
           type: string
           example: Narudžba zaprimljena

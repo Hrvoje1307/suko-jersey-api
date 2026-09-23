@@ -12,7 +12,7 @@ return [
     |
     */
 
-    'estimated_delivery_days' => (int) env('SHOP_ESTIMATED_DELIVERY_DAYS', 21),
+    'estimated_delivery_days' => (int) env('SHOP_ESTIMATED_DELIVERY_DAYS', 28),
 
     /*
     |--------------------------------------------------------------------------

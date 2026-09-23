@@ -18,7 +18,9 @@ enum OrderStatus: string
         return match ($this) {
             self::Ordered => 'Narudžba zaprimljena',
             self::SentToSupplier => 'Naručeno kod dobavljača',
-            self::ArrivedHr => 'Stiglo u Hrvatsku',
+            // Kupac ne smije vidjeti da roba ide preko Hrvatske — label je
+            // neutralan, a interni naziv koraka ostaje `arrived_hr`.
+            self::ArrivedHr => 'Priprema za slanje',
             self::Shipped => 'Poslano',
             self::Delivered => 'Dostavljeno',
         };

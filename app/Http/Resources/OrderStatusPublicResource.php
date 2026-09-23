@@ -21,6 +21,9 @@ class OrderStatusPublicResource extends JsonResource
         return [
             'order_reference' => $this->order_reference,
             'payment_status' => $this->payment_status->value,
+            // Enum za tracker na frontendu. Nije osoban podatak, a tracking
+            // broj ostaje skriven do slanja (niže).
+            'status' => $this->status->value,
             // Dok plaćanje nije prošlo, fulfillment status ("Narudžba
             // zaprimljena") bi kupca krivo uvjerio da je sve gotovo.
             'status_label' => $this->isPaid()

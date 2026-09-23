@@ -173,9 +173,10 @@ class OrderPublicTest extends TestCase
             ->assertOk()
             ->assertJsonPath('order_reference', $order->order_reference)
             ->assertJsonPath('status_label', 'Naručeno kod dobavljača')
+            ->assertJsonPath('status', 'sent_to_supplier')
             ->assertJsonPath('payment_status', 'paid')
             ->assertJsonPath('tracking_number', null)
-            ->assertJsonPath('estimated_delivery', $order->created_at->copy()->addDays(21)->toDateString());
+            ->assertJsonPath('estimated_delivery', $order->created_at->copy()->addDays(28)->toDateString());
     }
 
     public function test_lookup_exposes_tracking_once_shipped(): void
@@ -196,6 +197,28 @@ class OrderPublicTest extends TestCase
 
         $this->getJson('/api/orders/lookup?order_reference='.$order->order_reference.'&email=netko@drugi.com')
             ->assertNotFound();
+    }
+
+    public function test_lookup_ignores_email_case(): void
+    {
+        $order = Order::factory()->paid()->create();
+        $order->customer->update(['email' => 'Ivan.Horvat@Example.com']);
+
+        $this->getJson('/api/orders/lookup?order_reference='.$order->order_reference.'&email=ivan.horvat@example.com')
+            ->assertOk()
+            ->assertJsonPath('order_reference', $order->order_reference);
+    }
+
+    public function test_lookup_is_rate_limited(): void
+    {
+        $order = Order::factory()->create();
+        $url = '/api/orders/lookup?order_reference='.$order->order_reference.'&email=netko@drugi.com';
+
+        for ($i = 0; $i < 30; $i++) {
+            $this->getJson($url)->assertNotFound();
+        }
+
+        $this->getJson($url)->assertStatus(429);
     }
 
     public function test_lookup_requires_parameters(): void
@@ -226,6 +249,7 @@ class OrderPublicTest extends TestCase
             ->assertExactJson([
                 'order_reference' => $order->order_reference,
                 'payment_status' => 'paid',
+                'status' => 'ordered',
                 'status_label' => 'Narudžba zaprimljena',
             ]);
     }

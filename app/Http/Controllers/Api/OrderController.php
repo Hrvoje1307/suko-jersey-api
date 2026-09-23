@@ -37,7 +37,12 @@ class OrderController extends Controller
     {
         $order = Order::query()
             ->where('order_reference', $request->validated('order_reference'))
-            ->whereHas('customer', fn ($q) => $q->where('email', $request->validated('email')))
+            // Email se sprema kako ga je kupac upisao na checkoutu, a na
+            // praćenju ga upiše kako god — velika slova ne smiju dati 404.
+            ->whereHas('customer', fn ($q) => $q->whereRaw(
+                'lower(email) = ?',
+                [mb_strtolower($request->validated('email'))],
+            ))
             ->firstOrFail();
 
         return new OrderStatusPublicResource($order);
